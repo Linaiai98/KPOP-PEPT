@@ -1,0 +1,858 @@
+/* 虚拟宠物系统样式 */
+
+/* --- 糖果色主题样式 --- */
+:root {
+    /* 糖果色主色调 */
+    --main-bg-color: linear-gradient(135deg, #FFE5F1 0%, #E5F9F0 50%, #E5F4FF 100%);
+    --main-bg-solid: #FFF8FC;
+    --section-bg-color: transparent;
+    --text-color: #2D3748;
+    --text-muted-color: #718096;
+    --text-light-color: #A0AEC0;
+
+    /* 糖果色强调色 */
+    --primary-accent-color: #FF9EC7;
+    --primary-accent-hover-color: #FF7FB3;
+    --secondary-accent-color: #A8E6CF;
+    --tertiary-accent-color: #87CEEB;
+
+    /* 状态色 - 糖果色版本 */
+    --success-color: #98FB98;
+    --warning-color: #FFD93D;
+    --danger-color: #FF9EC7;
+    --info-color: #87CEEB;
+
+    /* 边框和阴影 */
+    --border-color: #E2E8F0;
+    --border-accent-color: #FF9EC7;
+    --box-shadow: 0 8px 16px rgba(255, 158, 199, 0.15);
+    --box-shadow-light: 0 4px 8px rgba(255, 158, 199, 0.1);
+
+    /* 字体和圆角 */
+    --font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    --border-radius: 12px;
+    --border-radius-small: 8px;
+
+    /* 宠物系统糖果色 */
+    --health-color: #FF9EC7;      /* 糖果粉 */
+    --happiness-color: #FFD93D;   /* 柠檬黄 */
+    --hunger-color: #FFB6C1;      /* 浅粉色 */
+    --energy-color: #A8E6CF;      /* 薄荷绿 */
+    --experience-color: #87CEEB;  /* 天空蓝 */
+}
+
+/* --- 糖果色浮动按钮 --- */
+#virtual-pet-button {
+    position: fixed !important;
+    z-index: 2147483647 !important;
+    cursor: grab !important;
+    width: 48px !important;
+    height: 48px !important;
+    background: linear-gradient(145deg, var(--primary-accent-color), var(--primary-accent-hover-color)) !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: white !important;
+    font-size: 24px !important;
+    box-shadow: var(--box-shadow),
+                inset 0 2px 4px rgba(255,255,255,0.3),
+                0 0 0 2px rgba(255, 158, 199, 0.2) !important;
+    transition: transform 0.2s ease-out,
+                box-shadow 0.2s ease-out,
+                color 0.2s ease-out,
+                opacity 0.2s ease-out !important;
+    user-select: none !important;
+    /* 确保可见性和正确定位 */
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    transform: none !important;
+    margin: 0 !important;
+    /* 触摸优化 */
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    /* 默认位置 - 确保在屏幕内 */
+    top: 200px !important;
+    left: 20px !important;
+    bottom: auto !important;
+    right: auto !important;
+}
+
+/* 拖动状态样式 */
+#virtual-pet-button:active,
+#virtual-pet-button.dragging {
+    cursor: grabbing !important;
+    opacity: 0.8 !important;
+    transform: scale(1.05) !important;
+    box-shadow: 0 6px 12px rgba(0,0,0,0.4),
+                inset 0 2px 2px rgba(255,255,255,0.05),
+                0 0 0 1px rgba(0,0,0,0.5) !important;
+}
+
+/* 确保拖动时的样式优先级最高 */
+#virtual-pet-button[style*="grabbing"] {
+    cursor: grabbing !important;
+}
+
+#virtual-pet-button[style*="opacity: 0.8"] {
+    opacity: 0.8 !important;
+}
+
+#virtual-pet-button[style*="scale(1.05)"] {
+    transform: scale(1.05) !important;
+}
+
+#virtual-pet-button:hover {
+    transform: scale(1.1) !important;
+    color: var(--primary-accent-hover-color) !important;
+    box-shadow: 0 6px 12px rgba(0,0,0,0.4),
+                inset 0 2px 3px rgba(255,255,255,0.08),
+                0 0 10px var(--primary-accent-color) !important;
+}
+
+/* --- 弹窗容器与布局 --- */
+.virtual-pet-popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6);
+    z-index: 10001;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+.pet-popup-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 380px;
+    max-height: 500px;
+    background-color: var(--main-bg-color);
+    color: var(--text-color);
+    font-family: var(--font-family);
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    /* 可拖拽样式 */
+    cursor: move;
+}
+
+/* 拖拽时的样式 */
+.pet-popup-container.dragging {
+    cursor: grabbing;
+    user-select: none;
+    transition: none;
+}
+
+/* 弹窗标题栏（用于拖拽） */
+.pet-popup-header {
+    padding: 12px 16px;
+    background: linear-gradient(145deg, var(--section-bg-color), var(--main-bg-color));
+    border-bottom: 1px solid var(--border-color);
+    cursor: grab;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.pet-popup-header:active {
+    cursor: grabbing;
+}
+
+.pet-popup-title {
+    font-weight: bold;
+    color: var(--primary-accent-color);
+    font-size: 1.1em;
+}
+
+/* --- 桌面端响应式布局 --- */
+@media (min-width: 768px) {
+    .pet-popup-container {
+        width: 380px;
+        height: 480px;
+        max-width: 380px;
+        max-height: 480px;
+    }
+
+    .virtual-pet-popup-overlay {
+        padding: 20px;
+    }
+}
+
+.pet-popup-close-button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted-color);
+    font-size: 20px;
+    font-weight: bold;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.2s;
+    padding: 4px 8px;
+    border-radius: 4px;
+    min-width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pet-popup-close-button:hover {
+    color: var(--text-color);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.pet-popup-body {
+    flex-grow: 1;
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* 隐藏滚动条但保留功能 */
+.pet-popup-body::-webkit-scrollbar {
+    display: none;
+}
+
+.pet-popup-body {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* --- 区块样式 --- */
+.pet-section {
+    background-color: var(--section-bg-color);
+    border-radius: var(--border-radius);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pet-section h3, .pet-section h4 {
+    margin: 0;
+    font-size: 1.2em;
+    color: var(--primary-accent-color);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pet-section h4 {
+    font-size: 1.1em;
+    color: var(--text-color);
+    border-bottom: none;
+}
+
+/* --- 宠物头像和基本信息 --- */
+.pet-avatar {
+    text-align: center;
+    padding: 20px;
+    background: linear-gradient(145deg, var(--section-bg-color), var(--main-bg-color));
+    border-radius: var(--border-radius);
+    margin-bottom: 16px;
+}
+
+.pet-emoji {
+    font-size: 4em;
+    margin-bottom: 10px;
+    display: block;
+    animation: petBounce 2s ease-in-out infinite;
+}
+
+@keyframes petBounce {
+    0%, 20%, 50%, 80%, 100% {
+        transform: translateY(0);
+    }
+    40% {
+        transform: translateY(-10px);
+    }
+    60% {
+        transform: translateY(-5px);
+    }
+}
+
+.pet-name {
+    font-size: 1.5em;
+    font-weight: bold;
+    color: var(--text-color);
+    margin-bottom: 5px;
+}
+
+.pet-level {
+    font-size: 1.1em;
+    color: var(--primary-accent-color);
+    font-weight: 500;
+}
+
+/* --- 状态条样式 --- */
+.pet-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.stat-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.stat-bar label {
+    min-width: 50px;
+    font-size: 0.9em;
+    color: var(--text-muted-color);
+    font-weight: 500;
+}
+
+.progress-bar {
+    flex-grow: 1;
+    height: 20px;
+    background-color: var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 10px;
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+.progress-fill.health {
+    background: linear-gradient(90deg, var(--health-color), #5cbf8a);
+}
+
+.progress-fill.happiness {
+    background: linear-gradient(90deg, var(--happiness-color), #ffc947);
+}
+
+.progress-fill.hunger {
+    background: linear-gradient(90deg, var(--hunger-color), #ff6b6b);
+}
+
+.progress-fill.energy {
+    background: linear-gradient(90deg, var(--energy-color), #8fa4d3);
+}
+
+.stat-bar span {
+    min-width: 50px;
+    text-align: right;
+    font-size: 0.85em;
+    color: var(--text-muted-color);
+}
+
+/* --- 按钮样式 --- */
+.pet-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.pet-button {
+    background-color: var(--primary-accent-color);
+    color: var(--text-color);
+    border: none;
+    padding: 12px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9em;
+    font-weight: 500;
+    transition: background-color 0.2s, transform 0.1s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
+    min-width: 120px;
+    /* 触摸优化 */
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+}
+
+.pet-button:hover {
+    background-color: var(--primary-accent-hover-color);
+    transform: translateY(-1px);
+}
+
+.pet-button:active {
+    transform: translateY(0);
+    background-color: var(--primary-accent-hover-color);
+}
+
+.pet-button:disabled {
+    background-color: var(--border-color);
+    cursor: not-allowed;
+    opacity: 0.7;
+    transform: none;
+}
+
+.pet-button.success {
+    background-color: var(--success-color);
+}
+
+.pet-button.warning {
+    background-color: var(--warning-color);
+}
+
+.pet-button.danger {
+    background-color: var(--danger-color);
+}
+
+/* --- 导航按钮 --- */
+.pet-nav-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.back-to-main-btn {
+    background-color: var(--border-color);
+    color: var(--text-color);
+}
+
+.back-to-main-btn:hover {
+    background-color: var(--text-muted-color);
+}
+
+/* --- 移动端优化 --- */
+@media (max-width: 767px) {
+    .virtual-pet-popup-overlay {
+        padding: 5px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        /* iOS Safari 修复 */
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        z-index: 999999 !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    .pet-popup-container {
+        width: calc(100vw - 20px) !important;
+        height: auto !important;
+        max-height: calc(100vh - 80px) !important;
+        max-width: 300px !important;
+        margin: 0 !important;
+        /* iOS Safari 修复 */
+        position: relative !important;
+        top: 0 !important;
+        left: 0 !important;
+        transform: none !important;
+        border-radius: 12px !important;
+        -webkit-overflow-scrolling: touch !important;
+        overflow-y: auto !important;
+        padding: 14px !important;
+    }
+
+    .pet-popup-body {
+        padding: 12px;
+        max-height: calc(100vh - 30vh);
+        overflow-y: auto;
+    }
+
+    .pet-button {
+        min-width: 80px;
+        padding: 10px 14px;
+        font-size: 0.85em;
+        min-height: 40px;
+    }
+
+    .pet-emoji {
+        font-size: 2.5em;
+    }
+
+    .pet-name {
+        font-size: 1.2em;
+    }
+
+    .pet-level {
+        font-size: 1em;
+    }
+
+    .stat-bar {
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .stat-bar label {
+        min-width: 40px;
+        font-size: 0.8em;
+    }
+
+    .stat-bar span {
+        font-size: 0.8em;
+        min-width: 45px;
+    }
+
+    /* 移动端按钮尺寸优化 */
+    #virtual-pet-button {
+        width: 52px !important;
+        height: 52px !important;
+        font-size: 26px !important;
+    }
+
+    /* 优化弹窗关闭按钮的触摸区域 */
+    .pet-popup-close-button {
+        min-width: 36px;
+        height: 36px;
+        font-size: 18px;
+        padding: 6px 10px;
+    }
+
+    /* 移动端标题栏优化 */
+    .pet-popup-header {
+        padding: 10px 12px;
+    }
+
+    .pet-popup-title {
+        font-size: 1em;
+    }
+
+    /* 确保所有交互元素都有足够的触摸区域 */
+    .pet-actions {
+        gap: 8px;
+        flex-direction: column;
+    }
+
+    .pet-nav-buttons {
+        gap: 8px;
+        flex-direction: column;
+    }
+
+    /* 优化进度条在小屏幕上的显示 */
+    .progress-bar {
+        height: 20px;
+        min-width: 100px;
+    }
+
+    /* 优化区块间距 */
+    .pet-section {
+        padding: 12px;
+        gap: 10px;
+    }
+
+    .pet-section h3 {
+        font-size: 1.1em;
+        padding-bottom: 6px;
+    }
+}
+
+/* --- iOS Safari 专用修复 --- */
+@supports (-webkit-touch-callout: none) {
+    .virtual-pet-popup-overlay {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        z-index: 999999 !important;
+        background-color: rgba(0, 0, 0, 0.8) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    .pet-popup-container {
+        position: relative !important;
+        width: calc(100vw - 20px) !important;
+        max-width: 350px !important;
+        max-height: calc(100vh - 60px) !important;
+        background-color: #2c2f33 !important;
+        border-radius: 12px !important;
+        padding: 15px !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+    }
+}
+
+/* --- 统一UI样式和动画 --- */
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes popIn {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.pet-popup-container {
+    animation: popIn 0.3s ease-out !important;
+}
+
+.action-btn:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+}
+
+.action-btn:active {
+    transform: translateY(0) !important;
+}
+
+/* 状态栏动画 */
+.status-item div[style*="width"] {
+    transition: width 0.5s ease-in-out !important;
+}
+
+/* 通知动画 */
+.pet-notification {
+    animation: slideIn 0.3s ease-out !important;
+}
+
+/* 移动端按钮优化 */
+@media (max-width: 767px) {
+    .action-btn {
+        min-height: 42px !important;
+        font-size: 13px !important;
+        padding: 10px !important;
+    }
+
+    .pet-avatar {
+        font-size: 2.8em !important;
+    }
+
+    .pet-name {
+        font-size: 1.2em !important;
+    }
+
+    .pet-level {
+        font-size: 0.95em !important;
+    }
+
+    .pet-main-content {
+        gap: 12px !important;
+    }
+
+    .pet-avatar-section {
+        padding: 12px !important;
+    }
+
+    .pet-status-section {
+        padding: 10px !important;
+    }
+
+    .pet-info-section {
+        padding: 8px !important;
+        font-size: 0.75em !important;
+    }
+}
+
+/* --- 宠物详情视图样式 --- */
+.pet-info-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: var(--main-bg-color);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.info-item label {
+    font-weight: 500;
+    color: var(--text-muted-color);
+}
+
+.info-item span {
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+/* --- 成就系统样式 --- */
+.pet-achievements {
+    margin-top: 20px;
+}
+
+#achievements-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.achievement {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background-color: var(--main-bg-color);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.achievement.unlocked {
+    background-color: var(--success-color);
+    border-color: var(--success-color);
+    color: white;
+}
+
+.achievement.locked {
+    opacity: 0.6;
+}
+
+.achievement-icon {
+    font-size: 1.2em;
+}
+
+.achievement-name {
+    font-weight: 500;
+}
+
+/* --- 设置视图样式 --- */
+.settings-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.setting-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.setting-item label {
+    font-weight: 500;
+    color: var(--text-muted-color);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.setting-item input[type="text"],
+.setting-item select {
+    background-color: var(--section-bg-color) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-family: var(--font-family);
+    font-size: 0.9em;
+}
+
+.setting-item input[type="text"]:focus,
+.setting-item select:focus {
+    outline: none;
+    border-color: var(--primary-accent-color) !important;
+    box-shadow: 0 0 0 2px rgba(114, 137, 218, 0.2);
+}
+
+.setting-item input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--primary-accent-color);
+}
+
+.setting-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+.setting-actions .pet-button {
+    flex: 1;
+    min-width: 140px;
+}
+
+/* --- 视图切换动画 --- */
+.pet-view {
+    display: none;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* --- 扩展设置面板样式 --- */
+#virtual-pet-settings {
+    margin-bottom: 16px;
+}
+
+#virtual-pet-settings .notes {
+    color: var(--text-muted-color);
+    font-style: italic;
+    margin-top: 8px;
+    line-height: 1.4;
+}
+
+/* --- 移动端设置优化 --- */
+@media (max-width: 767px) {
+    .setting-actions {
+        flex-direction: column;
+    }
+
+    .setting-actions .pet-button {
+        min-width: auto;
+    }
+
+    .pet-info-grid {
+        gap: 8px;
+    }
+
+    .info-item {
+        padding: 6px 10px;
+    }
+
+    #achievements-container {
+        gap: 6px;
+    }
+
+    .achievement {
+        padding: 8px 10px;
+    }
+}

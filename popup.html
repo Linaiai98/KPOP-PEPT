@@ -1,0 +1,163 @@
+<!-- 虚拟宠物系统弹窗 -->
+<div id="virtual-pet-popup-overlay" class="virtual-pet-popup-overlay">
+    <div id="virtual-pet-popup" class="pet-popup-container">
+        <div class="pet-popup-header">
+            <div class="pet-popup-title">🐾 虚拟宠物</div>
+        </div>
+
+        <div class="pet-popup-body">
+            <!-- 主视图 -->
+            <div id="pet-main-view" class="pet-view">
+                <div class="pet-section">
+                    <h3>🐾 我的宠物</h3>
+                    
+                    <!-- 宠物状态显示容器 -->
+                    <div id="pet-status-container">
+                        <!-- 宠物状态将通过JavaScript动态渲染 -->
+                    </div>
+                    
+                    <!-- 宠物交互按钮 -->
+                    <div class="pet-actions">
+                        <button id="feed-pet-btn" class="pet-button success">
+                            🍖 喂食
+                        </button>
+                        <button id="play-pet-btn" class="pet-button warning">
+                            🎾 玩耍
+                        </button>
+                        <button id="sleep-pet-btn" class="pet-button">
+                            😴 休息
+                        </button>
+                    </div>
+                    
+                    <!-- 导航按钮 -->
+                    <div class="pet-nav-buttons">
+                        <button id="goto-pet-detail-btn" class="pet-button">
+                            📊 详细信息
+                        </button>
+                        <button id="goto-settings-btn" class="pet-button">
+                            ⚙️ 设置
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 宠物详情视图 -->
+            <div id="pet-detail-view" class="pet-view">
+                <div class="pet-section">
+                    <h3>📊 宠物详情</h3>
+                    
+                    <div id="pet-detail-container">
+                        <div class="pet-info-grid">
+                            <div class="info-item">
+                                <label>名称:</label>
+                                <span id="detail-pet-name">小宠物</span>
+                            </div>
+                            <div class="info-item">
+                                <label>类型:</label>
+                                <span id="detail-pet-type">猫咪</span>
+                            </div>
+                            <div class="info-item">
+                                <label>等级:</label>
+                                <span id="detail-pet-level">1</span>
+                            </div>
+                            <div class="info-item">
+                                <label>经验:</label>
+                                <span id="detail-pet-exp">0/100</span>
+                            </div>
+                            <div class="info-item">
+                                <label>创建时间:</label>
+                                <span id="detail-pet-created">刚刚</span>
+                            </div>
+                        </div>
+                        
+                        <div class="pet-achievements">
+                            <h4>🏆 成就</h4>
+                            <div id="achievements-container">
+                                <div class="achievement locked">
+                                    <span class="achievement-icon">🥇</span>
+                                    <span class="achievement-name">初次喂食</span>
+                                </div>
+                                <div class="achievement locked">
+                                    <span class="achievement-icon">🎮</span>
+                                    <span class="achievement-name">游戏达人</span>
+                                </div>
+                                <div class="achievement locked">
+                                    <span class="achievement-icon">⭐</span>
+                                    <span class="achievement-name">升级专家</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="pet-nav-buttons">
+                        <button class="pet-button back-to-main-btn">
+                            ← 返回
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 设置视图 -->
+            <div id="pet-settings-view" class="pet-view">
+                <div class="pet-section">
+                    <h3>⚙️ 设置</h3>
+                    
+                    <div class="settings-container">
+                        <div class="setting-item">
+                            <label for="pet-name-input">宠物名称:</label>
+                            <input type="text" id="pet-name-input" placeholder="输入宠物名称" maxlength="20">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label for="pet-type-select">宠物类型:</label>
+                            <select id="pet-type-select">
+                                <option value="cat">🐱 猫咪</option>
+                                <option value="dog">🐶 小狗</option>
+                                <option value="dragon">🐉 龙</option>
+                                <option value="rabbit">🐰 兔子</option>
+                                <option value="bird">🐦 小鸟</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="auto-save-checkbox" checked>
+                                自动保存宠物状态
+                            </label>
+                        </div>
+
+                        <div class="setting-item" style="background: #f0f8ff; padding: 10px; border-radius: 5px; border-left: 4px solid #007bff;">
+                            <div style="font-weight: bold; color: #007bff; margin-bottom: 5px;">💡 提示</div>
+                            <div style="font-size: 0.9em; color: #555;">
+                                宠物人设功能已移至 <strong>扩展设置</strong> 中！<br>
+                                请前往 SillyTavern 的扩展管理页面配置宠物人设。
+                            </div>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="notifications-checkbox" checked>
+                                启用通知提醒
+                            </label>
+                        </div>
+                        
+                        <div class="setting-actions">
+                            <button id="save-settings-btn" class="pet-button success">
+                                💾 保存设置
+                            </button>
+                            <button id="reset-pet-btn" class="pet-button danger">
+                                🔄 重置宠物
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="pet-nav-buttons">
+                        <button class="pet-button back-to-main-btn">
+                            ← 返回
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
