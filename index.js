@@ -37,6 +37,170 @@ jQuery(async () => {
     // 自定义头像管理
     let customAvatarData = null;
 
+    // 同步保存限制机制
+    let lastSyncSaveTime = 0;
+    const SYNC_SAVE_COOLDOWN = 2000; // 2秒冷却时间，避免频繁保存
+
+    // 安全的z-index值，避免影响其他插件
+    const SAFE_Z_INDEX = {
+        button: 10000,      // 悬浮按钮 - 低于其他悬浮插件
+        popup: 10001,       // 弹窗
+        overlay: 10000,     // 遮罩层
+        notification: 10002 // 通知
+    };
+
+    // 样式隔离前缀，确保不影响其他插件
+    const STYLE_PREFIX = 'virtual-pet-';
+
+    /**
+     * 创建样式隔离的CSS规则
+     */
+    function createIsolatedStyles() {
+        const styleId = `${STYLE_PREFIX}isolated-styles`;
+
+        // 如果已经存在，先移除
+        $(`#${styleId}`).remove();
+
+        const isolatedCSS = `
+            /* 虚拟宠物插件样式隔离 - 安全版本 */
+
+            /* 只影响虚拟宠物相关元素 */
+            #${BUTTON_ID} {
+                font-family: inherit !important;
+                line-height: normal !important;
+                box-sizing: border-box !important;
+            }
+
+            #${POPUP_ID}, #${OVERLAY_ID} {
+                font-family: inherit !important;
+                line-height: normal !important;
+                box-sizing: border-box !important;
+            }
+
+            /* 虚拟宠物容器样式隔离 */
+            .${STYLE_PREFIX}container,
+            .${STYLE_PREFIX}container * {
+                box-sizing: border-box !important;
+            }
+
+            /* 确保虚拟宠物元素不被其他样式影响 */
+            [id*="virtual-pet"],
+            [class*="virtual-pet"] {
+                font-family: inherit !important;
+            }
+        `;
+
+        $('head').append(`<style id="${styleId}">${isolatedCSS}</style>`);
+        console.log(`[${extensionName}] 安全样式隔离已应用`);
+    }
+
+    /**
+     * 紧急清除可能影响SillyTavern的样式
+     */
+    function emergencyStyleCleanup() {
+        console.log(`[${extensionName}] 🚨 执行紧急样式清理...`);
+
+        // 移除可能有问题的样式
+        $(`#${STYLE_PREFIX}isolated-styles`).remove();
+
+        // 清除任何可能影响body或全局的样式
+        $('style').each(function() {
+            const content = $(this).text();
+            if (content.includes('body >') ||
+                content.includes('position: relative !important') ||
+                content.includes('virtual-pet')) {
+                console.log(`[${extensionName}] 移除可疑样式:`, content.substring(0, 100));
+                $(this).remove();
+            }
+        });
+
+        // 重新应用安全的样式隔离
+        createIsolatedStyles();
+
+        console.log(`[${extensionName}] ✅ 紧急样式清理完成`);
+    }
+
+    // 全局紧急修复函数
+    window.emergencyFixSillyTavernUI = function() {
+        console.log('🚨 紧急修复SillyTavern UI...');
+
+        // 1. 移除所有虚拟宠物相关样式
+        $('style').each(function() {
+            const content = $(this).text();
+            if (content.includes('virtual-pet') ||
+                content.includes('body >') ||
+                content.includes('position: relative !important')) {
+                console.log('移除样式:', $(this).attr('id') || '匿名样式');
+                $(this).remove();
+            }
+        });
+
+        // 2. 重置body样式
+        $('body').removeAttr('style');
+        $('body').css({
+            'position': '',
+            'overflow': '',
+            'display': '',
+            'visibility': ''
+        });
+
+        // 3. 重置html样式
+        $('html').removeAttr('style');
+        $('html').css({
+            'position': '',
+            'overflow': '',
+            'display': '',
+            'visibility': ''
+        });
+
+        // 4. 移除虚拟宠物元素
+        $('[id*="virtual-pet"]').remove();
+        $('[class*="virtual-pet"]').remove();
+
+        // 5. 强制刷新页面布局
+        $('body').hide().show();
+
+        console.log('✅ 紧急修复完成！请刷新页面以完全恢复。');
+        alert('🚨 紧急修复完成！\n\n请按 Ctrl+F5 强制刷新页面以完全恢复SillyTavern界面。\n\n如果问题持续，请禁用虚拟宠物插件。');
+
+        return true;
+    };
+
+    // 立即执行紧急清理（如果检测到问题）
+    setTimeout(() => {
+        if ($('body').children().length === 0 ||
+            $('body').css('display') === 'none' ||
+            $('#send_textarea').length === 0) {
+            console.log(`[${extensionName}] 🚨 检测到SillyTavern UI问题，执行紧急修复...`);
+            window.emergencyFixSillyTavernUI();
+        }
+    }, 1000);
+
+    /**
+     * 安全的SillyTavern设置保存函数
+     */
+    function safeSillyTavernSave() {
+        const now = Date.now();
+        if (now - lastSyncSaveTime < SYNC_SAVE_COOLDOWN) {
+            console.log(`[${extensionName}] 同步保存冷却中，跳过此次保存`);
+            return false;
+        }
+
+        try {
+            if (typeof window.saveSettingsDebounced === 'function' &&
+                typeof window.extension_settings === 'object' &&
+                window.extension_settings !== null) {
+
+                window.saveSettingsDebounced();
+                lastSyncSaveTime = now;
+                return true;
+            }
+        } catch (error) {
+            console.warn(`[${extensionName}] SillyTavern保存失败:`, error);
+        }
+        return false;
+    }
+
     // 拓麻歌子风格配色方案
     const candyColors = {
         // 主色调 - 经典拓麻歌子风格
@@ -198,34 +362,545 @@ jQuery(async () => {
 
 
     /**
-     * 保存AI配置设置
+     * 直接从后端API获取可用模型列表 - 全新方法
+     */
+    async function getAvailableAPIs() {
+        try {
+            console.log(`[${extensionName}] 🎯 直接从后端API获取可用模型列表...`);
+            const availableAPIs = [];
+
+            // 方法1: 直接调用各大API提供商的模型列表端点
+            console.log(`[${extensionName}] 🌐 尝试直接调用后端API...`);
+
+            // 构建API提供商列表，优先使用用户配置的URL
+            const apiProviders = [
+                {
+                    name: 'OpenAI (用户配置)',
+                    type: 'openai',
+                    endpoints: [
+                        userApiUrls.openai + '/models',
+                        userApiUrls.openai.replace('/v1', '') + '/v1/models'  // 备用格式
+                    ],
+                    requiresAuth: true,
+                    authHeader: 'Authorization',
+                    authPrefix: 'Bearer '
+                },
+                {
+                    name: 'OpenAI (官方)',
+                    type: 'openai_official',
+                    endpoints: [
+                        'https://api.openai.com/v1/models',
+                        'https://api.openai.com/v1/engines'
+                    ],
+                    requiresAuth: true,
+                    authHeader: 'Authorization',
+                    authPrefix: 'Bearer '
+                },
+                {
+                    name: 'Anthropic Claude',
+                    type: 'claude',
+                    endpoints: [
+                        'https://api.anthropic.com/v1/models'
+                    ],
+                    requiresAuth: true,
+                    authHeader: 'x-api-key',
+                    authPrefix: ''
+                },
+                {
+                    name: 'Google AI',
+                    type: 'google',
+                    endpoints: [
+                        'https://generativelanguage.googleapis.com/v1beta/models'
+                    ],
+                    requiresAuth: true,
+                    authHeader: 'Authorization',
+                    authPrefix: 'Bearer '
+                },
+                {
+                    name: 'Ollama (本地)',
+                    type: 'ollama',
+                    endpoints: [
+                        'http://localhost:11434/api/tags',
+                        'http://127.0.0.1:11434/api/tags'
+                    ],
+                    requiresAuth: false
+                },
+                {
+                    name: 'LM Studio (本地)',
+                    type: 'lmstudio',
+                    endpoints: [
+                        'http://localhost:1234/v1/models',
+                        'http://127.0.0.1:1234/v1/models'
+                    ],
+                    requiresAuth: false
+                },
+                {
+                    name: 'Text Generation WebUI',
+                    type: 'textgen',
+                    endpoints: [
+                        'http://localhost:5000/v1/models',
+                        'http://127.0.0.1:5000/v1/models'
+                    ],
+                    requiresAuth: false
+                }
+            ];
+
+            // 尝试从用户配置中获取API密钥和URL
+            const userApiKeys = {
+                openai: $('#ai-key-input').val() || localStorage.getItem('openai_api_key'),
+                claude: localStorage.getItem('claude_api_key'),
+                google: localStorage.getItem('google_api_key')
+            };
+
+            const userApiUrls = {
+                openai: $('#ai-url-input').val() || 'https://api.openai.com/v1',
+                claude: 'https://api.anthropic.com/v1',
+                google: 'https://generativelanguage.googleapis.com/v1beta'
+            };
+
+            for (const provider of apiProviders) {
+                console.log(`[${extensionName}] 🔍 检查 ${provider.name}...`);
+
+                for (const endpoint of provider.endpoints) {
+                    try {
+                        const headers = {
+                            'Content-Type': 'application/json'
+                        };
+
+                        // 添加认证头（如果需要且有密钥）
+                        if (provider.requiresAuth && userApiKeys[provider.type]) {
+                            headers[provider.authHeader] = provider.authPrefix + userApiKeys[provider.type];
+                            console.log(`[${extensionName}] 🔑 使用API密钥进行认证`);
+                        }
+
+                        console.log(`[${extensionName}] 🔗 尝试: ${endpoint}`);
+
+                        const response = await fetch(endpoint, {
+                            method: 'GET',
+                            headers: headers,
+                            // 添加超时和错误处理
+                            signal: AbortSignal.timeout(10000) // 10秒超时
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            console.log(`[${extensionName}] ✅ ${provider.name} 成功:`, data);
+
+                            // 解析不同API的响应格式
+                            let models = [];
+
+                            if (provider.type === 'openai') {
+                                // OpenAI格式: {data: [{id: "gpt-4", ...}, ...]}
+                                models = data.data || data.models || [];
+                            } else if (provider.type === 'claude') {
+                                // Claude格式可能不同
+                                models = data.models || data.data || [];
+                            } else if (provider.type === 'google') {
+                                // Google AI格式: {models: [{name: "models/gemini-pro", ...}, ...]}
+                                models = data.models || [];
+                            } else if (provider.type === 'ollama') {
+                                // Ollama格式: {models: [{name: "llama2", ...}, ...]}
+                                models = data.models || [];
+                            } else {
+                                // 通用格式处理
+                                models = data.models || data.data || data.engines || [];
+                            }
+
+                            // 添加检测到的模型
+                            models.forEach(model => {
+                                let modelName = '';
+                                let modelId = '';
+
+                                if (typeof model === 'string') {
+                                    modelName = modelId = model;
+                                } else if (model.id) {
+                                    modelId = model.id;
+                                    modelName = model.id;
+                                } else if (model.name) {
+                                    modelId = model.name;
+                                    modelName = model.name.replace('models/', ''); // 处理Google AI的格式
+                                }
+
+                                if (modelName) {
+                                    availableAPIs.push({
+                                        type: provider.type,
+                                        name: modelName,
+                                        id: modelId,
+                                        status: 'available',
+                                        source: endpoint,
+                                        provider: provider.name,
+                                        requiresAuth: provider.requiresAuth,
+                                        hasAuth: provider.requiresAuth ? !!userApiKeys[provider.type] : true
+                                    });
+                                }
+                            });
+
+                            // 找到可用的API后，不再尝试该提供商的其他端点
+                            break;
+
+                        } else if (response.status === 401) {
+                            console.log(`[${extensionName}] 🔐 ${provider.name} 需要API密钥认证`);
+                            availableAPIs.push({
+                                type: provider.type,
+                                name: `${provider.name} (需要API密钥)`,
+                                status: 'auth_required',
+                                source: endpoint,
+                                provider: provider.name,
+                                requiresAuth: true,
+                                hasAuth: false
+                            });
+                        } else {
+                            console.log(`[${extensionName}] ❌ ${endpoint}: HTTP ${response.status}`);
+                        }
+
+                    } catch (error) {
+                        if (error.name === 'TimeoutError') {
+                            console.log(`[${extensionName}] ⏰ ${endpoint} 超时`);
+                        } else if (error.message.includes('CORS')) {
+                            console.log(`[${extensionName}] 🚫 ${endpoint} CORS限制`);
+                        } else {
+                            console.log(`[${extensionName}] ❌ ${endpoint} 失败: ${error.message}`);
+                        }
+                    }
+                }
+            }
+
+            // 方法2: 从SillyTavern上下文获取当前配置作为补充
+            console.log(`[${extensionName}] 📋 获取SillyTavern当前配置作为补充...`);
+            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                try {
+                    const context = SillyTavern.getContext();
+
+                    if (context.main_api) {
+                        console.log(`[${extensionName}] 🎯 SillyTavern当前API: ${context.main_api}`);
+                        availableAPIs.push({
+                            type: context.main_api,
+                            name: `${getAPIDisplayName(context.main_api)} (SillyTavern当前)`,
+                            status: context.online_status ? 'connected' : 'configured',
+                            source: 'SillyTavern',
+                            provider: 'SillyTavern配置'
+                        });
+                    }
+
+                    if (context.model) {
+                        console.log(`[${extensionName}] 🤖 SillyTavern当前模型: ${context.model}`);
+                        availableAPIs.push({
+                            type: 'current_model',
+                            name: context.model,
+                            status: 'current',
+                            source: 'SillyTavern',
+                            provider: 'SillyTavern当前模型'
+                        });
+                    }
+
+                } catch (error) {
+                    console.warn(`[${extensionName}] ⚠️ 获取SillyTavern上下文失败:`, error);
+                }
+            }
+
+            // 去重并排序
+            const uniqueAPIs = availableAPIs.filter((api, index, self) =>
+                index === self.findIndex(a => a.name === api.name && a.type === api.type)
+            ).sort((a, b) => {
+                // 优先显示有认证的API
+                if (a.hasAuth !== b.hasAuth) {
+                    return b.hasAuth ? 1 : -1;
+                }
+                // 然后按状态排序
+                const statusOrder = { 'current': 0, 'connected': 1, 'available': 2, 'auth_required': 3 };
+                const aOrder = statusOrder[a.status] || 4;
+                const bOrder = statusOrder[b.status] || 4;
+                if (aOrder !== bOrder) {
+                    return aOrder - bOrder;
+                }
+                // 最后按名称排序
+                return a.name.localeCompare(b.name);
+            });
+
+            console.log(`[${extensionName}] 🎉 最终发现 ${uniqueAPIs.length} 个可用API:`, uniqueAPIs);
+
+            if (uniqueAPIs.length === 0) {
+                console.log(`[${extensionName}] ⚠️ 未发现任何API，可能的原因:`);
+                console.log(`[${extensionName}] 1. 网络连接问题或CORS限制`);
+                console.log(`[${extensionName}] 2. 需要配置API密钥`);
+                console.log(`[${extensionName}] 3. 本地API服务未启动（如Ollama、LM Studio）`);
+                console.log(`[${extensionName}] 4. API端点地址发生变化`);
+                console.log(`[${extensionName}] 💡 建议: 先在AI配置中输入API密钥，然后重新刷新`);
+            } else {
+                console.log(`[${extensionName}] 📋 发现的API分布:`);
+                const providerCount = {};
+                const statusCount = {};
+                uniqueAPIs.forEach(api => {
+                    providerCount[api.provider] = (providerCount[api.provider] || 0) + 1;
+                    statusCount[api.status] = (statusCount[api.status] || 0) + 1;
+                });
+                console.log(`[${extensionName}] 📊 按提供商:`, providerCount);
+                console.log(`[${extensionName}] 📊 按状态:`, statusCount);
+
+                // 提供使用建议
+                const authRequiredCount = uniqueAPIs.filter(api => api.status === 'auth_required').length;
+                if (authRequiredCount > 0) {
+                    console.log(`[${extensionName}] 💡 有 ${authRequiredCount} 个API需要密钥认证`);
+                }
+
+                const availableCount = uniqueAPIs.filter(api => api.status === 'available').length;
+                if (availableCount > 0) {
+                    console.log(`[${extensionName}] ✅ 有 ${availableCount} 个API可直接使用`);
+                }
+            }
+
+            return uniqueAPIs;
+
+        } catch (error) {
+            console.error(`[${extensionName}] ❌ 获取API列表失败:`, error);
+            return [];
+        }
+    }
+
+    /**
+     * 获取API显示名称
+     */
+    function getAPIDisplayName(apiType) {
+        const displayNames = {
+            'openai': 'OpenAI (ChatGPT)',
+            'claude': 'Claude (Anthropic)',
+            'google': 'Google AI Studio',
+            'mistral': 'Mistral AI',
+            'ollama': 'Ollama (本地)',
+            'kobold': 'KoboldAI',
+            'tabby': 'TabbyAPI',
+            'horde': 'AI Horde',
+            'custom': '自定义API'
+        };
+        return displayNames[apiType] || apiType;
+    }
+
+    /**
+     * 更新模型下拉列表 - 新的主要功能
+     */
+    function updateModelDropdown(models) {
+        const select = $('#ai-model-select');
+        const currentValue = select.val();
+
+        console.log(`[${extensionName}] 🔄 更新模型下拉列表，共 ${models.length} 个模型`);
+
+        // 保留原有的静态选项
+        const staticOptions = `
+            <option value="">请选择模型...</option>
+            <option value="gpt-4">GPT-4</option>
+            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+            <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+            <option value="claude-3-sonnet-20240229">Claude 3 Sonnet</option>
+            <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+            <option value="gemini-pro">Gemini Pro</option>
+            <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+            <option value="custom">🔧 自定义模型</option>
+        `;
+
+        // 按提供商分组动态模型
+        const groupedModels = {};
+        models.forEach(model => {
+            const group = model.provider || 'Other';
+            if (!groupedModels[group]) {
+                groupedModels[group] = [];
+            }
+            groupedModels[group].push(model);
+        });
+
+        // 生成动态选项
+        let dynamicOptions = '';
+        if (Object.keys(groupedModels).length > 0) {
+            // 按优先级排序组
+            const groupOrder = ['OpenAI', 'Anthropic Claude', 'Google AI', 'Ollama (本地)', 'LM Studio (本地)', '第三方API', '用户配置API', 'Other'];
+            const sortedGroups = Object.keys(groupedModels).sort((a, b) => {
+                const aIndex = groupOrder.indexOf(a);
+                const bIndex = groupOrder.indexOf(b);
+                if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+                if (aIndex === -1) return 1;
+                if (bIndex === -1) return -1;
+                return aIndex - bIndex;
+            });
+
+            sortedGroups.forEach(group => {
+                const groupModels = groupedModels[group];
+                dynamicOptions += `<optgroup label="━━━ ${group} ━━━">`;
+
+                groupModels.forEach(model => {
+                    const value = `api_model:${model.id || model.name}`;
+                    const statusIcon = getStatusIcon(model.status);
+                    let displayName = model.name;
+
+                    // 添加状态提示
+                    if (model.status === 'suggested') {
+                        displayName += ' (推荐)';
+                    } else if (model.status === 'auth_required') {
+                        displayName += ' (需要密钥)';
+                    }
+
+                    // 限制显示长度
+                    if (displayName.length > 40) {
+                        displayName = displayName.substring(0, 37) + '...';
+                    }
+
+                    dynamicOptions += `<option value="${value}" data-model-id="${model.id}" data-status="${model.status}">${statusIcon} ${displayName}</option>`;
+                });
+                dynamicOptions += '</optgroup>';
+            });
+        }
+
+        select.html(staticOptions + dynamicOptions);
+
+        // 恢复之前的选择
+        if (currentValue) {
+            select.val(currentValue);
+        }
+
+        console.log(`[${extensionName}] ✅ 模型下拉列表更新完成`);
+
+        // 显示统计信息
+        const totalModels = models.length;
+        const availableModels = models.filter(model => model.status === 'available').length;
+        const suggestedModels = models.filter(model => model.status === 'suggested').length;
+
+        if (totalModels > 0) {
+            console.log(`[${extensionName}] 📊 模型统计: 总计${totalModels}个, 可用${availableModels}个, 推荐${suggestedModels}个`);
+        }
+    }
+
+    /**
+     * 更新API下拉列表 - 保留兼容性
+     */
+    function updateAPIDropdown(apis) {
+        // 为了兼容性，将API列表转换为模型列表格式
+        const models = apis.map(api => ({
+            id: api.name,
+            name: api.name,
+            status: api.status,
+            provider: api.provider,
+            type: api.type
+        }));
+
+        updateModelDropdown(models);
+    }
+
+    /**
+     * 获取状态图标
+     */
+    function getStatusIcon(status) {
+        const icons = {
+            'available': '✅',
+            'connected': '🟢',
+            'current': '⭐',
+            'configured': '🔧',
+            'stored': '💾',
+            'detected': '🔍',
+            'unknown': '❓'
+        };
+        return icons[status] || '❓';
+    }
+
+    /**
+     * 保存AI配置设置 - 支持多端同步
      */
     function saveAISettings() {
+        // 获取当前选择的模型
+        let currentModel = '';
+        const modelSelect = $('#ai-model-select').val();
+        const modelInput = $('#ai-model-input').val();
+
+        if (modelSelect === 'custom') {
+            currentModel = modelInput;
+        } else if (modelSelect && modelSelect.startsWith('api_model:')) {
+            currentModel = modelSelect.replace('api_model:', '');
+        } else if (modelSelect) {
+            currentModel = modelSelect;
+        } else {
+            currentModel = modelInput;
+        }
+
         const settings = {
             apiType: $('#ai-api-select').val(),
             apiUrl: $('#ai-url-input').val(),
             apiKey: $('#ai-key-input').val(),
-            apiModel: $('#ai-model-input').val(),
+            apiModel: currentModel,
             lastTestTime: Date.now(),
-            lastTestResult: $('#ai-connection-status').text().includes('✅')
+            lastTestResult: $('#ai-connection-status').text().includes('✅'),
+            lastSyncTime: Date.now() // 添加同步时间戳
         };
 
+        // 保存到本地存储
         localStorage.setItem(`${extensionName}-ai-settings`, JSON.stringify(settings));
-        console.log(`[${extensionName}] AI设置已保存:`, settings);
+
+        // 保存到同步存储
+        saveAISettingsToSync(settings);
+
+        console.log(`[${extensionName}] AI设置已保存并同步:`, settings);
     }
 
     /**
-     * 加载AI配置设置
+     * 加载AI配置设置 - 支持多端同步
      */
     function loadAISettings() {
         try {
-            const saved = localStorage.getItem(`${extensionName}-ai-settings`);
-            if (saved) {
-                const settings = JSON.parse(saved);
+            // 首先尝试从同步存储加载
+            const syncSettings = loadAISettingsFromSync();
+            const localSettings = localStorage.getItem(`${extensionName}-ai-settings`);
+
+            let settings = null;
+
+            // 比较同步数据和本地数据，选择最新的
+            if (syncSettings && localSettings) {
+                try {
+                    const syncParsed = typeof syncSettings === 'object' ? syncSettings : JSON.parse(syncSettings);
+                    const localParsed = JSON.parse(localSettings);
+
+                    const syncTime = syncParsed.lastSyncTime || 0;
+                    const localTime = localParsed.lastSyncTime || 0;
+
+                    if (syncTime > localTime) {
+                        settings = syncParsed;
+                        console.log(`[${extensionName}] 使用同步的AI设置（更新）`);
+                    } else {
+                        settings = localParsed;
+                        console.log(`[${extensionName}] 使用本地AI设置（更新）`);
+                    }
+                } catch (error) {
+                    console.warn(`[${extensionName}] AI设置比较失败，使用本地设置:`, error);
+                    settings = JSON.parse(localSettings);
+                }
+            } else if (syncSettings) {
+                settings = typeof syncSettings === 'object' ? syncSettings : JSON.parse(syncSettings);
+                console.log(`[${extensionName}] 使用同步的AI设置（仅有同步）`);
+            } else if (localSettings) {
+                settings = JSON.parse(localSettings);
+                console.log(`[${extensionName}] 使用本地AI设置（仅有本地）`);
+            }
+
+            if (settings) {
                 $('#ai-api-select').val(settings.apiType || '');
                 $('#ai-url-input').val(settings.apiUrl || '');
                 $('#ai-key-input').val(settings.apiKey || '');
-                $('#ai-model-input').val(settings.apiModel || '');
+
+                // 处理模型设置
+                const savedModel = settings.apiModel || '';
+                if (savedModel) {
+                    // 尝试在模型选择框中找到匹配的选项
+                    const modelSelect = $('#ai-model-select');
+                    const matchingOption = modelSelect.find(`option[value="${savedModel}"]`);
+
+                    if (matchingOption.length > 0) {
+                        // 在下拉列表中找到了匹配的模型
+                        modelSelect.val(savedModel);
+                        $('#ai-model-input').hide().val(savedModel);
+                    } else {
+                        // 没有找到匹配的模型，使用自定义模式
+                        modelSelect.val('custom');
+                        $('#ai-model-input').show().val(savedModel);
+                    }
+                } else {
+                    $('#ai-model-input').val('');
+                }
 
                 // 根据API类型显示/隐藏配置输入框
                 toggleApiConfigInputs(settings.apiType);
@@ -236,6 +911,7 @@ jQuery(async () => {
                     $('#ai-connection-status').text(`✅ 上次测试成功 (${timeAgo}分钟前)`).css('color', '#48bb78');
                 }
 
+                console.log(`[${extensionName}] AI设置已加载:`, settings);
                 return settings;
             }
         } catch (error) {
@@ -245,28 +921,129 @@ jQuery(async () => {
     }
 
     /**
-     * 切换API配置输入框的显示状态
+     * 切换API配置输入框的显示状态 - 后端API版本
      */
     function toggleApiConfigInputs(apiType) {
         const container = $('#ai-config-container');
-        if (apiType && apiType !== 'auto' && apiType !== '') {
+
+        console.log(`[${extensionName}] 🔧 处理API类型: ${apiType}`);
+
+        // 处理从后端API检测到的API类型
+        let processedApiType = apiType;
+        let backendInfo = null;
+
+        if (apiType && apiType.startsWith('backend:')) {
+            // 解析后端API信息: backend:type:name
+            const parts = apiType.split(':');
+            if (parts.length >= 3) {
+                const backendType = parts[1];
+                const backendName = parts.slice(2).join(':'); // 处理名称中可能包含冒号的情况
+
+                processedApiType = backendType;
+                backendInfo = {
+                    type: backendType,
+                    name: backendName
+                };
+
+                console.log(`[${extensionName}] 🔍 后端API信息:`, backendInfo);
+
+                // 自动填充模型名称
+                $('#ai-model-input').val(backendName);
+
+                // 根据API类型提供配置建议
+                let configMessage = `已选择模型: ${backendName}`;
+                if (backendType === 'openai') {
+                    configMessage += '，请输入OpenAI API密钥';
+                } else if (backendType === 'claude') {
+                    configMessage += '，请输入Claude API密钥';
+                } else if (backendType === 'google') {
+                    configMessage += '，请输入Google AI API密钥';
+                } else if (backendType === 'ollama' || backendType === 'lmstudio') {
+                    configMessage += '，本地API无需密钥';
+                } else {
+                    configMessage += '，请配置相应的URL和密钥';
+                }
+
+                toastr.info(configMessage, '🤖 模型已选择', { timeOut: 6000 });
+            }
+        } else if (apiType && apiType.startsWith('detected:')) {
+            // 兼容旧格式
+            const parts = apiType.split(':');
+            if (parts.length >= 3) {
+                const detectedType = parts[1];
+                const detectedName = parts.slice(2).join(':');
+                processedApiType = detectedType;
+                $('#ai-model-input').val(detectedName);
+                toastr.info(`已选择检测到的API: ${detectedName}，请配置相应的URL和密钥`, '', { timeOut: 6000 });
+            }
+        } else if (apiType && apiType.startsWith('model:')) {
+            // 兼容更旧的格式
+            const modelName = apiType.replace('model:', '');
+            processedApiType = 'custom';
+            $('#ai-model-input').val(modelName);
+            toastr.info(`已选择模型: ${modelName}，请配置对应的API URL和密钥`, '', { timeOut: 5000 });
+        }
+
+        if (processedApiType && processedApiType !== 'auto' && processedApiType !== '') {
             container.show();
 
             // 根据API类型设置默认值
             const defaults = {
                 'openai': { url: 'https://api.openai.com/v1', model: 'gpt-4' },
-                'claude': { url: 'https://api.anthropic.com', model: 'claude-3-sonnet-20240229' },
+                'claude': { url: 'https://api.anthropic.com/v1', model: 'claude-3-sonnet-20240229' },
                 'google': { url: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-pro' },
                 'mistral': { url: 'https://api.mistral.ai/v1', model: 'mistral-medium' },
+                'ollama': { url: 'http://localhost:11434/v1', model: 'llama2' },
+                'lmstudio': { url: 'http://localhost:1234/v1', model: 'local-model' },
+                'textgen': { url: 'http://localhost:5000/v1', model: 'text-generation-webui' },
                 'kobold': { url: 'http://localhost:5001', model: 'kobold' },
-                'ollama': { url: 'http://localhost:11434', model: 'llama2' },
                 'tabby': { url: 'http://localhost:5000', model: 'tabby' },
-                'horde': { url: 'https://horde.koboldai.net', model: 'horde' }
+                'horde': { url: 'https://horde.koboldai.net', model: 'horde' },
+                'custom': { url: '', model: '' }
             };
 
-            if (defaults[apiType] && !$('#ai-url-input').val()) {
-                $('#ai-url-input').attr('placeholder', defaults[apiType].url);
-                $('#ai-model-input').attr('placeholder', defaults[apiType].model);
+            // 设置默认值（如果当前输入框为空）
+            if (defaults[processedApiType]) {
+                if (!$('#ai-url-input').val() && defaults[processedApiType].url) {
+                    $('#ai-url-input').val(defaults[processedApiType].url);
+                    $('#ai-url-input').attr('placeholder', defaults[processedApiType].url);
+                }
+                if (!$('#ai-model-input').val() && defaults[processedApiType].model && !backendInfo) {
+                    $('#ai-model-input').attr('placeholder', defaults[processedApiType].model);
+                }
+            }
+
+            // 如果是从后端检测到的API，提供特定的配置建议
+            if (backendInfo) {
+                console.log(`[${extensionName}] 💡 为后端API提供配置建议`);
+
+                // 根据API类型自动设置URL
+                if (backendInfo.type === 'openai') {
+                    if (!$('#ai-url-input').val()) {
+                        $('#ai-url-input').val('https://api.openai.com/v1');
+                    }
+                } else if (backendInfo.type === 'claude') {
+                    if (!$('#ai-url-input').val()) {
+                        $('#ai-url-input').val('https://api.anthropic.com/v1');
+                    }
+                } else if (backendInfo.type === 'google') {
+                    if (!$('#ai-url-input').val()) {
+                        $('#ai-url-input').val('https://generativelanguage.googleapis.com/v1beta');
+                    }
+                } else if (backendInfo.type === 'ollama') {
+                    if (!$('#ai-url-input').val()) {
+                        $('#ai-url-input').val('http://localhost:11434/v1');
+                    }
+                } else if (backendInfo.type === 'lmstudio') {
+                    if (!$('#ai-url-input').val()) {
+                        $('#ai-url-input').val('http://localhost:1234/v1');
+                    }
+                }
+
+                // 为本地API隐藏密钥输入框或提供提示
+                if (backendInfo.type === 'ollama' || backendInfo.type === 'lmstudio' || backendInfo.type === 'textgen') {
+                    $('#ai-key-input').attr('placeholder', '本地API通常不需要密钥');
+                }
             }
         } else {
             container.hide();
@@ -745,9 +1522,111 @@ ${getCurrentPersonality()}
             testAIConnection();
         });
 
+        // 绑定模型选择框事件
+        $('#ai-model-select').on('change', function() {
+            const selectedValue = $(this).val();
+            console.log(`[${extensionName}] 模型选择变化: ${selectedValue}`);
+
+            if (selectedValue === 'custom') {
+                // 显示自定义输入框
+                $('#ai-model-input').show().focus();
+                $('#ai-model-input').attr('placeholder', '请输入自定义模型名称');
+                toastr.info('请在下方输入框中输入自定义模型名称', '🔧 自定义模型', { timeOut: 3000 });
+            } else if (selectedValue && selectedValue.startsWith('api_model:')) {
+                // 处理从API获取的模型
+                const modelId = selectedValue.replace('api_model:', '');
+                $('#ai-model-input').hide().val(modelId);
+                toastr.success(`已选择API模型: ${modelId}`, '🤖 模型已选择', { timeOut: 2000 });
+                console.log(`[${extensionName}] 选择了API模型: ${modelId}`);
+            } else if (selectedValue) {
+                // 隐藏自定义输入框，使用选择的模型
+                $('#ai-model-input').hide().val(selectedValue);
+                toastr.success(`已选择模型: ${selectedValue}`, '🤖 模型已选择', { timeOut: 2000 });
+            } else {
+                // 未选择，隐藏自定义输入框
+                $('#ai-model-input').hide().val('');
+            }
+
+            // 保存设置
+            saveAISettings();
+        });
+
+        // 绑定刷新模型列表按钮事件
+        $('#refresh-models-btn').on('click', async function(e) {
+            e.preventDefault();
+            const button = $(this);
+            const originalText = button.text();
+
+            button.prop('disabled', true).text('🔄 获取中...');
+
+            try {
+                console.log(`[${extensionName}] 开始刷新模型列表...`);
+
+                // 检查API配置
+                const userApiUrl = $('#ai-url-input').val();
+                const userApiKey = $('#ai-key-input').val();
+
+                if (!userApiUrl) {
+                    toastr.warning('请先配置API URL', '⚠️ 配置不完整', { timeOut: 3000 });
+                    return;
+                }
+
+                let models = [];
+
+                console.log(`[${extensionName}] 从配置的API获取模型列表...`);
+
+                // 使用第三方API专用方法获取模型
+                const thirdPartyModels = await getThirdPartyModels();
+                if (thirdPartyModels.length > 0) {
+                    models = thirdPartyModels;
+                    console.log(`[${extensionName}] 从第三方API获取到 ${thirdPartyModels.length} 个模型`);
+                } else {
+                    // 备选：使用通用方法
+                    const userModels = await getUserConfiguredModels();
+                    if (userModels.length > 0) {
+                        models = userModels;
+                        console.log(`[${extensionName}] 从用户配置API获取到 ${userModels.length} 个模型`);
+                    }
+                }
+
+                // 更新模型下拉列表
+                updateModelDropdown(models);
+
+                if (models.length > 0) {
+                    toastr.success(`🎉 从您的API获取到 ${models.length} 个模型！`, '模型获取成功', { timeOut: 4000 });
+                } else {
+                    toastr.warning('未能从您的API获取到模型，请检查URL和密钥配置', '⚠️ 模型获取失败', { timeOut: 4000 });
+                }
+            } catch (error) {
+                console.error(`[${extensionName}] 刷新模型列表失败:`, error);
+                toastr.error('获取模型列表失败: ' + error.message, '❌ 获取失败', { timeOut: 5000 });
+            } finally {
+                button.prop('disabled', false).text(originalText);
+            }
+        });
+
+        // 初始化时自动尝试获取API列表（静默模式）
+        setTimeout(async () => {
+            try {
+                console.log(`[${extensionName}] 初始化时自动获取API列表...`);
+                const apis = await getAvailableAPIs();
+                if (apis.length > 0) {
+                    updateAPIDropdown(apis);
+                    console.log(`[${extensionName}] 自动发现 ${apis.length} 个API`);
+                }
+            } catch (error) {
+                console.log(`[${extensionName}] 自动获取API列表失败（这是正常的）:`, error.message);
+            }
+        }, 1000);
+
         console.log(`[${extensionName}] 设置面板初始化完成`);
         console.log(`[${extensionName}] 当前人设类型: ${currentPersonalityType}`);
         console.log(`[${extensionName}] 当前人设内容: ${getCurrentPersonality()}`);
+        console.log(`[${extensionName}] 💡 提示: 点击"🔄 刷新"按钮可以从SillyTavern获取可用的API列表`);
+        console.log(`[${extensionName}] 💡 提示: 在控制台运行以下命令进行测试:`);
+        console.log(`[${extensionName}] 💡   - diagnoseSillyTavernEnvironment() // 环境诊断`);
+        console.log(`[${extensionName}] 💡   - testVirtualPetAPIDiscovery() // API发现测试`);
+        console.log(`[${extensionName}] 💡   - quickAPITest() // 快速API测试`);
     }
 
     /**
@@ -983,7 +1862,7 @@ ${getCurrentPersonality()}
     }
 
     /**
-     * 保存到同步存储（跨设备）
+     * 保存到同步存储（跨设备）- 安全版本
      */
     function saveToSyncStorage(data) {
         try {
@@ -991,17 +1870,26 @@ ${getCurrentPersonality()}
             const syncKey = `${extensionName}-sync-data`;
             localStorage.setItem(syncKey, JSON.stringify(data));
 
-            // 如果在SillyTavern环境中，尝试使用其他同步方法
-            if (typeof window.saveSettingsDebounced === 'function') {
-                // 利用SillyTavern的设置保存机制
-                const syncData = {
-                    [`${extensionName}_pet_data`]: data
-                };
+            // 安全地尝试使用SillyTavern的同步机制
+            if (typeof window.saveSettingsDebounced === 'function' &&
+                typeof window.extension_settings === 'object' &&
+                window.extension_settings !== null) {
 
-                // 尝试保存到SillyTavern的设置中
-                if (typeof window.extension_settings === 'object') {
-                    window.extension_settings[extensionName] = syncData;
-                    window.saveSettingsDebounced();
+                try {
+                    // 确保不覆盖现有的扩展设置
+                    if (!window.extension_settings[extensionName]) {
+                        window.extension_settings[extensionName] = {};
+                    }
+
+                    // 只保存宠物数据，不影响其他设置
+                    window.extension_settings[extensionName][`${extensionName}_pet_data`] = data;
+
+                    // 使用安全的保存机制
+                    if (safeSillyTavernSave()) {
+                        console.log(`[${extensionName}] 数据已保存到SillyTavern设置`);
+                    }
+                } catch (settingsError) {
+                    console.warn(`[${extensionName}] SillyTavern设置保存失败，使用本地存储:`, settingsError);
                 }
             }
 
@@ -1038,6 +1926,180 @@ ${getCurrentPersonality()}
         } catch (error) {
             console.warn(`[${extensionName}] 同步存储加载失败:`, error);
             return null;
+        }
+    }
+
+    /**
+     * 保存AI设置到同步存储 - 安全版本
+     */
+    function saveAISettingsToSync(settings) {
+        try {
+            // 使用专门的AI设置同步键
+            const syncKey = `${extensionName}-ai-settings-sync`;
+            localStorage.setItem(syncKey, JSON.stringify(settings));
+
+            // 安全地尝试使用SillyTavern的同步机制
+            if (typeof window.saveSettingsDebounced === 'function' &&
+                typeof window.extension_settings === 'object' &&
+                window.extension_settings !== null) {
+
+                try {
+                    // 确保不覆盖现有的扩展设置
+                    if (!window.extension_settings[extensionName]) {
+                        window.extension_settings[extensionName] = {};
+                    }
+
+                    // 只保存AI设置，不影响其他设置
+                    window.extension_settings[extensionName][`${extensionName}_ai_settings`] = settings;
+
+                    // 使用安全的保存机制
+                    if (safeSillyTavernSave()) {
+                        console.log(`[${extensionName}] AI设置已保存到SillyTavern设置`);
+                    }
+                } catch (settingsError) {
+                    console.warn(`[${extensionName}] SillyTavern AI设置保存失败，使用本地存储:`, settingsError);
+                }
+            }
+
+            console.log(`[${extensionName}] AI设置已保存到同步存储`);
+        } catch (error) {
+            console.warn(`[${extensionName}] AI设置同步存储保存失败:`, error);
+        }
+    }
+
+    /**
+     * 从同步存储加载AI设置
+     */
+    function loadAISettingsFromSync() {
+        try {
+            // 首先尝试从SillyTavern设置加载
+            if (typeof window.extension_settings === 'object' &&
+                window.extension_settings[extensionName] &&
+                window.extension_settings[extensionName][`${extensionName}_ai_settings`]) {
+
+                const syncSettings = window.extension_settings[extensionName][`${extensionName}_ai_settings`];
+                console.log(`[${extensionName}] 从SillyTavern设置加载AI同步设置`);
+                return syncSettings;
+            }
+
+            // 其次尝试从同步键加载
+            const syncKey = `${extensionName}-ai-settings-sync`;
+            const syncSettings = localStorage.getItem(syncKey);
+            if (syncSettings) {
+                console.log(`[${extensionName}] 从同步存储加载AI设置`);
+                return JSON.parse(syncSettings);
+            }
+
+            return null;
+        } catch (error) {
+            console.warn(`[${extensionName}] AI设置同步存储加载失败:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * 保存头像到同步存储 - 安全版本
+     */
+    function saveAvatarToSync(avatarData) {
+        try {
+            // 使用专门的头像同步键
+            const syncKey = `${extensionName}-avatar-sync`;
+            localStorage.setItem(syncKey, avatarData);
+
+            // 安全地尝试使用SillyTavern的同步机制
+            // 注意：头像数据可能很大，谨慎保存到SillyTavern设置
+            if (typeof window.saveSettingsDebounced === 'function' &&
+                typeof window.extension_settings === 'object' &&
+                window.extension_settings !== null &&
+                avatarData.length < 500000) { // 限制头像大小 < 500KB
+
+                try {
+                    // 确保不覆盖现有的扩展设置
+                    if (!window.extension_settings[extensionName]) {
+                        window.extension_settings[extensionName] = {};
+                    }
+
+                    // 只保存头像，不影响其他设置
+                    window.extension_settings[extensionName][`${extensionName}_avatar`] = avatarData;
+
+                    // 使用安全的保存机制
+                    if (safeSillyTavernSave()) {
+                        console.log(`[${extensionName}] 头像已保存到SillyTavern设置`);
+                    }
+                } catch (settingsError) {
+                    console.warn(`[${extensionName}] SillyTavern头像保存失败，使用本地存储:`, settingsError);
+                }
+            } else if (avatarData.length >= 500000) {
+                console.log(`[${extensionName}] 头像过大(${Math.round(avatarData.length/1024)}KB)，仅保存到本地存储`);
+            }
+
+            console.log(`[${extensionName}] 头像已保存到同步存储`);
+        } catch (error) {
+            console.warn(`[${extensionName}] 头像同步存储保存失败:`, error);
+        }
+    }
+
+    /**
+     * 从同步存储加载头像
+     */
+    function loadAvatarFromSync() {
+        try {
+            // 首先尝试从SillyTavern设置加载
+            if (typeof window.extension_settings === 'object' &&
+                window.extension_settings[extensionName] &&
+                window.extension_settings[extensionName][`${extensionName}_avatar`]) {
+
+                const syncAvatar = window.extension_settings[extensionName][`${extensionName}_avatar`];
+                console.log(`[${extensionName}] 从SillyTavern设置加载头像同步数据`);
+                return syncAvatar;
+            }
+
+            // 其次尝试从同步键加载
+            const syncKey = `${extensionName}-avatar-sync`;
+            const syncAvatar = localStorage.getItem(syncKey);
+            if (syncAvatar) {
+                console.log(`[${extensionName}] 从同步存储加载头像`);
+                return syncAvatar;
+            }
+
+            return null;
+        } catch (error) {
+            console.warn(`[${extensionName}] 头像同步存储加载失败:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * 从同步存储清除头像 - 安全版本
+     */
+    function clearAvatarFromSync() {
+        try {
+            // 清除同步键
+            const syncKey = `${extensionName}-avatar-sync`;
+            localStorage.removeItem(syncKey);
+
+            // 安全地尝试从SillyTavern设置中清除
+            if (typeof window.saveSettingsDebounced === 'function' &&
+                typeof window.extension_settings === 'object' &&
+                window.extension_settings !== null &&
+                window.extension_settings[extensionName]) {
+
+                try {
+                    // 只删除头像，不影响其他设置
+                    delete window.extension_settings[extensionName][`${extensionName}_avatar`];
+
+                    // 使用安全的保存机制
+                    if (safeSillyTavernSave()) {
+                        console.log(`[${extensionName}] 头像已从SillyTavern设置清除`);
+                    }
+                } catch (settingsError) {
+                    console.warn(`[${extensionName}] SillyTavern头像清除失败:`, settingsError);
+                }
+            }
+
+            console.log(`[${extensionName}] 头像已从同步存储清除`);
+        } catch (error) {
+            console.warn(`[${extensionName}] 头像同步存储清除失败:`, error);
         }
     }
     
@@ -1307,7 +2369,7 @@ ${getCurrentPersonality()}
                 width: 100vw !important;
                 height: 100vh !important;
                 background-color: rgba(0, 0, 0, 0.8) !important;
-                z-index: 999999 !important;
+                z-index: ${SAFE_Z_INDEX.overlay} !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
@@ -2000,14 +3062,41 @@ ${getCurrentPersonality()}
     }
 
     /**
-     * 加载自定义头像数据
+     * 加载自定义头像数据 - 支持多端同步
      */
     function loadCustomAvatar() {
         try {
-            const saved = localStorage.getItem(STORAGE_KEY_CUSTOM_AVATAR);
-            if (saved) {
-                customAvatarData = saved;
-                console.log(`[${extensionName}] Custom avatar loaded`);
+            // 首先尝试从同步存储加载
+            const syncAvatar = loadAvatarFromSync();
+            const localAvatar = localStorage.getItem(STORAGE_KEY_CUSTOM_AVATAR);
+
+            // 比较同步数据和本地数据，选择最新的
+            if (syncAvatar && localAvatar) {
+                // 如果都存在，优先使用同步数据
+                customAvatarData = syncAvatar;
+                // 同步到本地存储
+                localStorage.setItem(STORAGE_KEY_CUSTOM_AVATAR, syncAvatar);
+                console.log(`[${extensionName}] 使用同步的头像数据并更新本地`);
+            } else if (syncAvatar) {
+                customAvatarData = syncAvatar;
+                // 同步到本地存储
+                localStorage.setItem(STORAGE_KEY_CUSTOM_AVATAR, syncAvatar);
+                console.log(`[${extensionName}] 使用同步的头像数据（仅有同步）并保存到本地`);
+            } else if (localAvatar) {
+                customAvatarData = localAvatar;
+                console.log(`[${extensionName}] 使用本地头像数据（仅有本地）`);
+            }
+
+            if (customAvatarData) {
+                console.log(`[${extensionName}] Custom avatar loaded, size: ${Math.round(customAvatarData.length/1024)}KB`);
+
+                // 确保头像显示更新
+                setTimeout(() => {
+                    updateAvatarDisplay();
+                    updateFloatingButtonAvatar();
+                }, 100);
+            } else {
+                console.log(`[${extensionName}] No custom avatar found`);
             }
         } catch (error) {
             console.warn(`[${extensionName}] Failed to load custom avatar:`, error);
@@ -2015,13 +3104,18 @@ ${getCurrentPersonality()}
     }
 
     /**
-     * 保存自定义头像数据
+     * 保存自定义头像数据 - 支持多端同步
      */
     function saveCustomAvatar(imageData) {
         try {
+            // 保存到本地存储
             localStorage.setItem(STORAGE_KEY_CUSTOM_AVATAR, imageData);
             customAvatarData = imageData;
-            console.log(`[${extensionName}] Custom avatar saved`);
+
+            // 保存到同步存储
+            saveAvatarToSync(imageData);
+
+            console.log(`[${extensionName}] Custom avatar saved and synced`);
             return true;
         } catch (error) {
             console.error(`[${extensionName}] Failed to save custom avatar:`, error);
@@ -2030,13 +3124,18 @@ ${getCurrentPersonality()}
     }
 
     /**
-     * 清除自定义头像
+     * 清除自定义头像 - 支持多端同步
      */
     function clearCustomAvatar() {
         try {
+            // 清除本地存储
             localStorage.removeItem(STORAGE_KEY_CUSTOM_AVATAR);
             customAvatarData = null;
-            console.log(`[${extensionName}] Custom avatar cleared`);
+
+            // 清除同步存储
+            clearAvatarFromSync();
+
+            console.log(`[${extensionName}] Custom avatar cleared and synced`);
             return true;
         } catch (error) {
             console.error(`[${extensionName}] Failed to clear custom avatar:`, error);
@@ -2463,7 +3562,7 @@ ${getCurrentPersonality()}
         const buttonHtml = `
             <div id="${BUTTON_ID}" style="
                 position: fixed !important;
-                z-index: 2147483647 !important;
+                z-index: ${SAFE_Z_INDEX.button} !important;
                 cursor: grab !important;
                 width: 48px !important;
                 height: 48px !important;
@@ -2505,7 +3604,7 @@ ${getCurrentPersonality()}
             'display': 'flex',
             'opacity': '1',
             'visibility': 'visible',
-            'z-index': '2147483647',
+            'z-index': SAFE_Z_INDEX.button,
             'transform': 'none',
             'margin': '0',
             'pointer-events': 'auto'
@@ -2606,7 +3705,7 @@ ${getCurrentPersonality()}
                         'top': '200px',
                         'left': '20px',
                         'transform': 'none',
-                        'z-index': '2147483647'
+                        'z-index': SAFE_Z_INDEX.button
                     });
                 }
             } else {
@@ -2742,7 +3841,10 @@ ${getCurrentPersonality()}
     async function initializeExtension() {
         console.log(`[${extensionName}] Initializing extension...`);
 
-        // 1. 动态加载CSS
+        // 1. 创建样式隔离
+        createIsolatedStyles();
+
+        // 2. 动态加载CSS
         console.log(`[${extensionName}] Loading CSS from: ${extensionFolderPath}/style.css`);
         $("head").append(`<link rel="stylesheet" type="text/css" href="${extensionFolderPath}/style.css">`);
 
@@ -2789,9 +3891,9 @@ ${getCurrentPersonality()}
                             <textarea id="virtual-pet-custom-personality"
                                       placeholder="描述你的宠物性格、喜好和特点..."
                                       rows="3"
-                                      maxlength="1000"
+                                      maxlength="5000"
                                       style="width: 100%; padding: 8px; background: var(--SmartThemeBodyColor); color: var(--SmartThemeEmColor); border: 1px solid #444; border-radius: 4px; resize: vertical; font-family: inherit;"></textarea>
-                            <small style="color: #888; font-size: 0.8em;">最多1000字符，这将影响宠物与你互动时的回复风格</small>
+                            <small style="color: #888; font-size: 0.8em;">最多5000字符，这将影响宠物与你互动时的回复风格</small>
                         </div>
 
                         <small class="notes" style="margin-top: 10px; display: block;">
@@ -2833,11 +3935,37 @@ ${getCurrentPersonality()}
                                        style="width: 100%; padding: 6px; background: var(--SmartThemeBodyColor); color: var(--SmartThemeEmColor); border: 1px solid #444; border-radius: 4px;">
                             </div>
                             <div style="margin-bottom: 10px;">
-                                <label for="ai-model-input" style="display: block; margin-bottom: 5px; font-size: 0.9em;">
+                                <label for="ai-model-select" style="display: block; margin-bottom: 5px; font-size: 0.9em;">
                                     模型名称:
                                 </label>
-                                <input id="ai-model-input" type="text" placeholder="例如: gpt-4, claude-3-sonnet"
-                                       style="width: 100%; padding: 6px; background: var(--SmartThemeBodyColor); color: var(--SmartThemeEmColor); border: 1px solid #444; border-radius: 4px;">
+                                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                                    <select id="ai-model-select" style="flex: 1; padding: 6px; background: var(--SmartThemeBodyColor); color: var(--SmartThemeEmColor); border: 1px solid #444; border-radius: 4px; font-size: 0.9em;">
+                                        <option value="">请选择模型...</option>
+                                        <option value="gpt-4">GPT-4</option>
+                                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                        <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+                                        <option value="claude-3-sonnet-20240229">Claude 3 Sonnet</option>
+                                        <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+                                        <option value="gemini-pro">Gemini Pro</option>
+                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <option value="custom">🔧 自定义模型</option>
+                                    </select>
+                                    <button id="refresh-models-btn" style="
+                                        padding: 6px 10px;
+                                        background: #4a90e2;
+                                        color: white;
+                                        border: none;
+                                        border-radius: 4px;
+                                        cursor: pointer;
+                                        font-size: 0.8em;
+                                        white-space: nowrap;
+                                    " title="从配置的API获取可用模型列表">
+                                        🔄 获取
+                                    </button>
+                                </div>
+                                <input id="ai-model-input" type="text" placeholder="自定义模型名称"
+                                       style="width: 100%; padding: 6px; background: var(--SmartThemeBodyColor); color: var(--SmartThemeEmColor); border: 1px solid #444; border-radius: 4px; display: none;">
                             </div>
                         </div>
 
@@ -3101,7 +4229,7 @@ ${getCurrentPersonality()}
         const buttonHtml = `
             <div id="${BUTTON_ID}" style="
                 position: fixed !important;
-                z-index: 2147483647 !important;
+                z-index: ${SAFE_Z_INDEX.button} !important;
                 cursor: grab !important;
                 width: 48px !important;
                 height: 48px !important;
@@ -3190,7 +4318,7 @@ ${getCurrentPersonality()}
                 'left': '20px !important',
                 'width': '48px !important',
                 'height': '48px !important',
-                'z-index': '2147483647 !important',
+                'z-index': `${SAFE_Z_INDEX.button} !important`,
                 'display': 'flex !important',
                 'visibility': 'visible !important',
                 'opacity': '1 !important',
@@ -3291,7 +4419,7 @@ ${getCurrentPersonality()}
                 element.style.setProperty('top', newY + 'px', 'important');
                 element.style.setProperty('left', newX + 'px', 'important');
                 element.style.setProperty('transform', 'none', 'important');
-                element.style.setProperty('z-index', '2147483647', 'important');
+                element.style.setProperty('z-index', SAFE_Z_INDEX.button, 'important');
 
                 console.log(`🎯 移动到: ${newX}, ${newY}`);
             }
@@ -4334,7 +5462,7 @@ ${getCurrentPersonality()}
         };
     };
 
-    // 手动同步数据
+    // 手动同步宠物数据
     window.syncPetData = function() {
         console.log('🔄 手动同步宠物数据...');
 
@@ -4347,13 +5475,114 @@ ${getCurrentPersonality()}
         saveToSyncStorage(dataWithTimestamp);
         localStorage.setItem(STORAGE_KEY_PET_DATA, JSON.stringify(dataWithTimestamp));
 
-        console.log('✅ 数据同步完成！');
+        console.log('✅ 宠物数据同步完成！');
         toastr.success('宠物数据已同步到所有设备！');
 
         return {
             synced: true,
             timestamp: new Date().toISOString(),
             data: dataWithTimestamp
+        };
+    };
+
+    // 同步所有数据（宠物数据、AI设置、头像）
+    window.syncAllData = function() {
+        console.log('🔄 同步所有数据到云端...');
+
+        let syncResults = {
+            pet: false,
+            ai: false,
+            avatar: false,
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            // 1. 同步宠物数据
+            const dataWithTimestamp = {
+                ...petData,
+                lastSyncTime: Date.now()
+            };
+            saveToSyncStorage(dataWithTimestamp);
+            localStorage.setItem(STORAGE_KEY_PET_DATA, JSON.stringify(dataWithTimestamp));
+            syncResults.pet = true;
+            console.log('✅ 宠物数据同步完成');
+
+            // 2. 同步AI设置
+            const aiSettings = localStorage.getItem(`${extensionName}-ai-settings`);
+            if (aiSettings) {
+                const settings = JSON.parse(aiSettings);
+                settings.lastSyncTime = Date.now();
+                localStorage.setItem(`${extensionName}-ai-settings`, JSON.stringify(settings));
+                saveAISettingsToSync(settings);
+                syncResults.ai = true;
+                console.log('✅ AI设置同步完成');
+            } else {
+                console.log('⚠️ 无AI设置需要同步');
+            }
+
+            // 3. 同步头像
+            const avatar = localStorage.getItem(STORAGE_KEY_CUSTOM_AVATAR);
+            if (avatar) {
+                saveAvatarToSync(avatar);
+                syncResults.avatar = true;
+                console.log('✅ 头像同步完成');
+            } else {
+                console.log('⚠️ 无自定义头像需要同步');
+            }
+
+            console.log('🎉 所有数据同步完成！');
+            toastr.success('所有数据已同步到云端！现在可以在其他设备上访问了。', '🎉 同步成功', { timeOut: 5000 });
+
+        } catch (error) {
+            console.error('❌ 同步过程中出现错误:', error);
+            toastr.error('同步过程中出现错误: ' + error.message, '❌ 同步失败', { timeOut: 5000 });
+        }
+
+        return syncResults;
+    };
+
+    // 专门测试头像同步
+    window.testAvatarSync = function() {
+        console.log('🎨 测试头像同步功能...');
+
+        // 检查本地头像
+        const localAvatar = localStorage.getItem(STORAGE_KEY_CUSTOM_AVATAR);
+        console.log('本地头像:', localAvatar ? `存在 (${Math.round(localAvatar.length/1024)}KB)` : '不存在');
+
+        // 检查同步头像
+        const syncAvatar = loadAvatarFromSync();
+        console.log('同步头像:', syncAvatar ? `存在 (${Math.round(syncAvatar.length/1024)}KB)` : '不存在');
+
+        // 检查当前使用的头像
+        console.log('当前头像:', customAvatarData ? `已加载 (${Math.round(customAvatarData.length/1024)}KB)` : '未加载');
+
+        // 如果有同步头像但本地没有，尝试同步
+        if (syncAvatar && !localAvatar) {
+            console.log('🔄 发现同步头像，正在同步到本地...');
+            localStorage.setItem(STORAGE_KEY_CUSTOM_AVATAR, syncAvatar);
+            customAvatarData = syncAvatar;
+            updateAvatarDisplay();
+            updateFloatingButtonAvatar();
+            console.log('✅ 头像同步完成');
+            toastr.success('头像已从云端同步！', '🎨 头像同步', { timeOut: 3000 });
+        } else if (localAvatar && !syncAvatar) {
+            console.log('🔄 发现本地头像，正在同步到云端...');
+            saveAvatarToSync(localAvatar);
+            console.log('✅ 头像已同步到云端');
+            toastr.success('头像已同步到云端！', '🎨 头像同步', { timeOut: 3000 });
+        } else if (syncAvatar && localAvatar) {
+            console.log('✅ 头像已在本地和云端同步');
+            toastr.info('头像已同步', '🎨 头像状态', { timeOut: 2000 });
+        } else {
+            console.log('ℹ️ 未发现自定义头像');
+            toastr.info('未发现自定义头像', '🎨 头像状态', { timeOut: 2000 });
+        }
+
+        return {
+            hasLocal: !!localAvatar,
+            hasSync: !!syncAvatar,
+            hasCurrent: !!customAvatarData,
+            timestamp: new Date().toISOString()
         };
     };
 
@@ -4448,14 +5677,15 @@ ${getCurrentPersonality()}
         input.click();
     };
 
-    // 检查同步状态
+    // 检查同步状态 - 包含宠物数据、AI设置和头像
     window.checkSyncStatus = function() {
-        console.log('🔍 检查数据同步状态...');
+        console.log('🔍 检查完整同步状态...');
 
+        // 检查宠物数据
         const localData = localStorage.getItem(STORAGE_KEY_PET_DATA);
         const syncData = loadFromSyncStorage();
 
-        console.log('\n📱 本地数据:');
+        console.log('\n📱 宠物数据 - 本地:');
         if (localData) {
             try {
                 const local = JSON.parse(localData);
@@ -4470,7 +5700,7 @@ ${getCurrentPersonality()}
             console.log('- 无本地数据');
         }
 
-        console.log('\n☁️ 同步数据:');
+        console.log('\n☁️ 宠物数据 - 同步:');
         if (syncData) {
             try {
                 const sync = typeof syncData === 'object' ? syncData : JSON.parse(syncData);
@@ -4485,11 +5715,63 @@ ${getCurrentPersonality()}
             console.log('- 无同步数据');
         }
 
+        // 检查AI设置
+        const localAISettings = localStorage.getItem(`${extensionName}-ai-settings`);
+        const syncAISettings = loadAISettingsFromSync();
+
+        console.log('\n🤖 AI设置 - 本地:');
+        if (localAISettings) {
+            try {
+                const local = JSON.parse(localAISettings);
+                console.log(`- API类型: ${local.apiType || '未设置'}`);
+                console.log(`- API URL: ${local.apiUrl ? '已设置' : '未设置'}`);
+                console.log(`- API密钥: ${local.apiKey ? '已设置' : '未设置'}`);
+                console.log(`- 模型: ${local.apiModel || '未设置'}`);
+                console.log(`- 最后同步时间: ${local.lastSyncTime ? new Date(local.lastSyncTime).toLocaleString() : '未设置'}`);
+            } catch (e) {
+                console.log('- AI设置解析失败');
+            }
+        } else {
+            console.log('- 无本地AI设置');
+        }
+
+        console.log('\n☁️ AI设置 - 同步:');
+        if (syncAISettings) {
+            try {
+                const sync = typeof syncAISettings === 'object' ? syncAISettings : JSON.parse(syncAISettings);
+                console.log(`- API类型: ${sync.apiType || '未设置'}`);
+                console.log(`- API URL: ${sync.apiUrl ? '已设置' : '未设置'}`);
+                console.log(`- API密钥: ${sync.apiKey ? '已设置' : '未设置'}`);
+                console.log(`- 模型: ${sync.apiModel || '未设置'}`);
+                console.log(`- 最后同步时间: ${sync.lastSyncTime ? new Date(sync.lastSyncTime).toLocaleString() : '未设置'}`);
+            } catch (e) {
+                console.log('- 同步AI设置解析失败');
+            }
+        } else {
+            console.log('- 无同步AI设置');
+        }
+
+        // 检查头像
+        const localAvatar = localStorage.getItem(STORAGE_KEY_CUSTOM_AVATAR);
+        const syncAvatar = loadAvatarFromSync();
+
+        console.log('\n🎨 头像 - 本地:');
+        console.log(`- 自定义头像: ${localAvatar ? '已设置' : '未设置'}`);
+        if (localAvatar) {
+            console.log(`- 头像大小: ${Math.round(localAvatar.length / 1024)}KB`);
+        }
+
+        console.log('\n☁️ 头像 - 同步:');
+        console.log(`- 自定义头像: ${syncAvatar ? '已设置' : '未设置'}`);
+        if (syncAvatar) {
+            console.log(`- 头像大小: ${Math.round(syncAvatar.length / 1024)}KB`);
+        }
+
         console.log('\n🔄 同步建议:');
         if (!localData && !syncData) {
             console.log('- 这是新设备，数据将自动同步');
         } else if (localData && !syncData) {
-            console.log('- 建议运行 syncPetData() 将本地数据同步到云端');
+            console.log('- 建议运行 syncAllData() 将所有数据同步到云端');
         } else if (!localData && syncData) {
             console.log('- 将自动从云端恢复数据');
         } else {
@@ -4500,20 +5782,32 @@ ${getCurrentPersonality()}
                 const syncTime = sync.lastSyncTime || 0;
 
                 if (localTime > syncTime) {
-                    console.log('- 本地数据较新，建议运行 syncPetData() 同步到云端');
+                    console.log('- 本地数据较新，建议运行 syncAllData() 同步到云端');
                 } else if (syncTime > localTime) {
                     console.log('- 云端数据较新，将自动使用云端数据');
                 } else {
-                    console.log('- 数据已同步');
+                    console.log('- 宠物数据已同步');
                 }
             } catch (e) {
                 console.log('- 数据比较失败，建议手动同步');
             }
         }
 
+        // AI设置和头像同步建议
+        if (!syncAISettings && localAISettings) {
+            console.log('- AI设置需要同步到云端');
+        }
+        if (!syncAvatar && localAvatar) {
+            console.log('- 头像需要同步到云端');
+        }
+
         return {
             hasLocal: !!localData,
             hasSync: !!syncData,
+            hasLocalAI: !!localAISettings,
+            hasSyncAI: !!syncAISettings,
+            hasLocalAvatar: !!localAvatar,
+            hasSyncAvatar: !!syncAvatar,
             timestamp: new Date().toISOString()
         };
     };
@@ -6631,7 +7925,7 @@ ${getCurrentPersonality()}
                 position: fixed;
                 top: 10px;
                 right: 10px;
-                z-index: 999999;
+                z-index: ${SAFE_Z_INDEX.popup};
                 background: #7289da;
                 color: white;
                 border: none;
@@ -6678,7 +7972,7 @@ ${getCurrentPersonality()}
                 width: 100vw !important;
                 height: 100vh !important;
                 background-color: rgba(0, 0, 0, 0.85) !important;
-                z-index: 999999 !important;
+                z-index: ${SAFE_Z_INDEX.popup} !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
@@ -7493,7 +8787,7 @@ ${getCurrentPersonality()}
                 padding: 12px 20px;
                 border-radius: 8px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                z-index: 999999;
+                z-index: ${SAFE_Z_INDEX.notification};
                 font-size: 14px;
                 max-width: 300px;
                 animation: slideIn 0.3s ease-out;
@@ -7521,7 +8815,7 @@ ${getCurrentPersonality()}
                 position: fixed;
                 bottom: 20px;
                 right: 20px;
-                z-index: 999999;
+                z-index: ${SAFE_Z_INDEX.popup};
                 background: #43b581;
                 color: white;
                 border: none;
@@ -7696,7 +8990,7 @@ ${getCurrentPersonality()}
             'display': 'flex',
             'opacity': '1',
             'visibility': 'visible',
-            'z-index': '2147483647'
+            'z-index': SAFE_Z_INDEX.button
         });
 
         // 清除可能有问题的保存位置
@@ -7746,6 +9040,749 @@ ${getCurrentPersonality()}
     // -----------------------------------------------------------------
     // 测试和调试功能
     // -----------------------------------------------------------------
+
+    /**
+     * 快速诊断SillyTavern环境
+     */
+    window.diagnoseSillyTavernEnvironment = function() {
+        console.log("🔍 SillyTavern环境诊断开始...");
+        console.log("=".repeat(50));
+
+        // 1. 检查基本对象
+        console.log("\n1️⃣ 基本对象检查:");
+        console.log(`- window对象: ${typeof window !== 'undefined' ? '✅' : '❌'}`);
+        console.log(`- jQuery对象: ${typeof $ !== 'undefined' ? '✅' : '❌'}`);
+        console.log(`- SillyTavern对象: ${typeof SillyTavern !== 'undefined' ? '✅' : '❌'}`);
+
+        // 2. 检查SillyTavern相关函数
+        console.log("\n2️⃣ SillyTavern函数检查:");
+        const stFunctions = ['getContext', 'generateReply', 'Generate'];
+        stFunctions.forEach(func => {
+            if (typeof SillyTavern !== 'undefined' && SillyTavern[func]) {
+                console.log(`- SillyTavern.${func}: ✅`);
+            } else if (typeof window[func] !== 'undefined') {
+                console.log(`- window.${func}: ✅`);
+            } else {
+                console.log(`- ${func}: ❌`);
+            }
+        });
+
+        // 3. 检查全局变量
+        console.log("\n3️⃣ 全局变量检查:");
+        const globalVars = ['main_api', 'api_server', 'online_status', 'models', 'backends', 'extension_settings'];
+        globalVars.forEach(varName => {
+            const exists = typeof window[varName] !== 'undefined';
+            console.log(`- ${varName}: ${exists ? '✅' : '❌'} ${exists ? typeof window[varName] : ''}`);
+            if (exists && window[varName]) {
+                console.log(`  值: ${JSON.stringify(window[varName]).substring(0, 100)}...`);
+            }
+        });
+
+        // 4. 检查当前页面URL和路径
+        console.log("\n4️⃣ 页面信息:");
+        console.log(`- URL: ${window.location.href}`);
+        console.log(`- 路径: ${window.location.pathname}`);
+        console.log(`- 主机: ${window.location.host}`);
+
+        // 5. 检查DOM中的SillyTavern特征元素
+        console.log("\n5️⃣ DOM元素检查:");
+        const stSelectors = ['#chat', '#send_textarea', '#api_button', '.mes', '#extensions_settings'];
+        stSelectors.forEach(selector => {
+            const element = $(selector);
+            console.log(`- ${selector}: ${element.length > 0 ? '✅' : '❌'} (${element.length}个)`);
+        });
+
+        console.log("\n=".repeat(50));
+        console.log("🔍 环境诊断完成");
+
+        return {
+            hasSillyTavern: typeof SillyTavern !== 'undefined',
+            hasGetContext: typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function',
+            hasJQuery: typeof $ !== 'undefined',
+            url: window.location.href,
+            globalVarsFound: globalVars.filter(v => typeof window[v] !== 'undefined')
+        };
+    };
+
+    /**
+     * 测试API获取功能
+     */
+    window.testVirtualPetAPIDiscovery = async function() {
+        console.log("🔍 测试虚拟宠物API发现功能...");
+
+        // 先进行环境诊断
+        const envInfo = window.diagnoseSillyTavernEnvironment();
+
+        if (!envInfo.hasSillyTavern) {
+            console.log("⚠️ 警告: 未检测到SillyTavern环境，这可能是原因之一");
+        }
+
+        try {
+            // 测试完整的API获取功能
+            console.log("\n🔄 开始API发现测试:");
+            const apis = await getAvailableAPIs();
+            console.log(`\n🎉 测试完成，发现 ${apis.length} 个API:`, apis);
+
+            if (apis.length === 0) {
+                console.log("\n💡 建议:");
+                console.log("1. 确认你在SillyTavern页面中运行此测试");
+                console.log("2. 确认SillyTavern已经配置了至少一个API");
+                console.log("3. 尝试刷新页面后重新测试");
+                console.log("4. 检查浏览器控制台是否有其他错误");
+            }
+
+            return apis;
+        } catch (error) {
+            console.error("❌ 测试失败:", error);
+            return [];
+        }
+    };
+
+    /**
+     * 快速API测试 - 直接后端API版本
+     */
+    window.quickAPITest = async function() {
+        console.log("⚡ 快速后端API测试开始...");
+
+        // 1. 基础检查
+        console.log("\n1️⃣ 基础检查:");
+        console.log(`SillyTavern: ${typeof SillyTavern !== 'undefined' ? '✅' : '❌'}`);
+        console.log(`jQuery: ${typeof $ !== 'undefined' ? '✅' : '❌'}`);
+        console.log(`Fetch API: ${typeof fetch !== 'undefined' ? '✅' : '❌'}`);
+
+        // 2. 检查用户配置的API密钥
+        console.log("\n2️⃣ API密钥检查:");
+        const apiKeyInput = $('#ai-key-input').val();
+        console.log(`用户输入的API密钥: ${apiKeyInput ? '✅ 已设置' : '❌ 未设置'}`);
+
+        // 3. 快速测试本地API
+        console.log("\n3️⃣ 本地API快速测试:");
+        const localEndpoints = [
+            'http://localhost:11434/api/tags',  // Ollama
+            'http://localhost:1234/v1/models', // LM Studio
+            'http://localhost:5000/v1/models'  // Text Generation WebUI
+        ];
+
+        for (const endpoint of localEndpoints) {
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(3000) // 3秒超时
+                });
+                console.log(`${endpoint}: ${response.ok ? '✅' : '❌'} (${response.status})`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const modelCount = data.models ? data.models.length : (data.data ? data.data.length : 0);
+                    console.log(`  发现 ${modelCount} 个模型`);
+                }
+            } catch (error) {
+                if (error.name === 'TimeoutError') {
+                    console.log(`${endpoint}: ⏰ 超时`);
+                } else {
+                    console.log(`${endpoint}: ❌ (${error.message})`);
+                }
+            }
+        }
+
+        // 4. 测试在线API（如果有密钥）
+        if (apiKeyInput) {
+            console.log("\n4️⃣ 在线API测试:");
+            try {
+                const response = await fetch('https://api.openai.com/v1/models', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${apiKeyInput}`,
+                        'Content-Type': 'application/json'
+                    },
+                    signal: AbortSignal.timeout(5000)
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log(`OpenAI API: ✅ 发现 ${data.data.length} 个模型`);
+                } else if (response.status === 401) {
+                    console.log(`OpenAI API: 🔐 API密钥无效`);
+                } else {
+                    console.log(`OpenAI API: ❌ HTTP ${response.status}`);
+                }
+            } catch (error) {
+                console.log(`OpenAI API: ❌ ${error.message}`);
+            }
+        } else {
+            console.log("\n4️⃣ 跳过在线API测试 (未设置API密钥)");
+        }
+
+        // 5. 完整API发现测试
+        console.log("\n5️⃣ 完整API发现测试:");
+        try {
+            const apis = await getAvailableAPIs();
+            console.log(`结果: ${apis.length > 0 ? '✅' : '❌'} 发现${apis.length}个API`);
+            if (apis.length > 0) {
+                const grouped = {};
+                apis.forEach(api => {
+                    const provider = api.provider || 'Other';
+                    if (!grouped[provider]) grouped[provider] = 0;
+                    grouped[provider]++;
+                });
+                Object.entries(grouped).forEach(([provider, count]) => {
+                    console.log(`  📊 ${provider}: ${count}个`);
+                });
+            }
+            return apis;
+        } catch (error) {
+            console.log(`结果: ❌ 错误: ${error.message}`);
+            return [];
+        }
+    };
+
+    /**
+     * 测试特定API端点
+     */
+    window.testSpecificAPI = async function(apiType, apiKey = null) {
+        console.log(`🔍 测试特定API: ${apiType}`);
+
+        const endpoints = {
+            'openai': 'https://api.openai.com/v1/models',
+            'claude': 'https://api.anthropic.com/v1/models',
+            'google': 'https://generativelanguage.googleapis.com/v1beta/models',
+            'ollama': 'http://localhost:11434/api/tags',
+            'lmstudio': 'http://localhost:1234/v1/models'
+        };
+
+        const endpoint = endpoints[apiType];
+        if (!endpoint) {
+            console.log(`❌ 不支持的API类型: ${apiType}`);
+            return null;
+        }
+
+        try {
+            const headers = { 'Content-Type': 'application/json' };
+
+            // 添加认证头
+            if (apiKey) {
+                if (apiType === 'openai' || apiType === 'google') {
+                    headers['Authorization'] = `Bearer ${apiKey}`;
+                } else if (apiType === 'claude') {
+                    headers['x-api-key'] = apiKey;
+                }
+            }
+
+            const response = await fetch(endpoint, {
+                method: 'GET',
+                headers: headers,
+                signal: AbortSignal.timeout(10000)
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log(`✅ ${apiType} API 成功:`, data);
+                return data;
+            } else {
+                console.log(`❌ ${apiType} API 失败: HTTP ${response.status}`);
+                return null;
+            }
+        } catch (error) {
+            console.log(`❌ ${apiType} API 错误: ${error.message}`);
+            return null;
+        }
+    };
+
+    /**
+     * 获取用户配置API的模型列表
+     */
+    window.getUserConfiguredModels = async function() {
+        console.log("🎯 获取用户配置API的模型列表...");
+
+        const apiUrl = $('#ai-url-input').val();
+        const apiKey = $('#ai-key-input').val();
+
+        if (!apiUrl) {
+            console.log("❌ 未配置API URL");
+            return [];
+        }
+
+        console.log(`🔗 API URL: ${apiUrl}`);
+        console.log(`🔑 API Key: ${apiKey ? '已设置' : '未设置'}`);
+
+        // 构建模型列表端点
+        let modelsEndpoint = apiUrl;
+        if (!modelsEndpoint.endsWith('/models')) {
+            if (modelsEndpoint.endsWith('/')) {
+                modelsEndpoint += 'models';
+            } else {
+                modelsEndpoint += '/models';
+            }
+        }
+
+        console.log(`📡 尝试获取模型列表: ${modelsEndpoint}`);
+
+        try {
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            // 添加认证头
+            if (apiKey) {
+                headers['Authorization'] = `Bearer ${apiKey}`;
+            }
+
+            const response = await fetch(modelsEndpoint, {
+                method: 'GET',
+                headers: headers,
+                signal: AbortSignal.timeout(15000) // 15秒超时
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log(`✅ 成功获取模型列表:`, data);
+
+                // 解析模型数据
+                let models = [];
+                if (data.data && Array.isArray(data.data)) {
+                    // OpenAI格式
+                    models = data.data.map(model => ({
+                        id: model.id,
+                        name: model.id,
+                        type: 'user_configured',
+                        status: 'available',
+                        source: modelsEndpoint,
+                        provider: '用户配置API'
+                    }));
+                } else if (data.models && Array.isArray(data.models)) {
+                    // 其他格式
+                    models = data.models.map(model => ({
+                        id: typeof model === 'string' ? model : model.id || model.name,
+                        name: typeof model === 'string' ? model : model.id || model.name,
+                        type: 'user_configured',
+                        status: 'available',
+                        source: modelsEndpoint,
+                        provider: '用户配置API'
+                    }));
+                }
+
+                console.log(`📋 解析出 ${models.length} 个模型:`, models.map(m => m.name));
+                return models;
+
+            } else {
+                console.log(`❌ 获取模型列表失败: HTTP ${response.status}`);
+
+                // 尝试读取错误信息
+                try {
+                    const errorText = await response.text();
+                    console.log(`错误详情:`, errorText.substring(0, 200));
+                } catch (e) {
+                    console.log(`无法读取错误详情`);
+                }
+
+                return [];
+            }
+
+        } catch (error) {
+            console.log(`❌ 请求失败: ${error.message}`);
+            return [];
+        }
+    };
+
+    /**
+     * 刷新并显示用户配置的模型
+     */
+    window.refreshUserModels = async function() {
+        console.log("🔄 刷新用户配置的模型...");
+
+        const models = await getUserConfiguredModels();
+
+        if (models.length > 0) {
+            console.log(`🎉 发现 ${models.length} 个可用模型:`);
+            models.forEach((model, index) => {
+                console.log(`  ${index + 1}. ${model.name}`);
+            });
+
+            // 更新下拉列表
+            updateAPIDropdown(models);
+
+            toastr.success(`发现 ${models.length} 个可用模型！`, '🎉 模型获取成功', { timeOut: 5000 });
+        } else {
+            console.log("❌ 未发现任何模型");
+            toastr.warning('未发现任何模型，请检查API配置', '⚠️ 模型获取失败', { timeOut: 5000 });
+        }
+
+        return models;
+    };
+
+    /**
+     * 通用第三方API模型获取器 - 支持任意第三方API
+     */
+    window.getThirdPartyModels = async function() {
+        console.log("🌐 通用第三方API模型获取器启动...");
+
+        const apiUrl = $('#ai-url-input').val();
+        const apiKey = $('#ai-key-input').val();
+
+        if (!apiUrl) {
+            console.log("❌ 请先配置API URL");
+            return [];
+        }
+
+        console.log(`🔗 API URL: ${apiUrl}`);
+        console.log(`🔑 API Key: ${apiKey ? '已设置' : '未设置'}`);
+
+        // 智能检测API服务类型
+        let serviceType = 'unknown';
+        const urlLower = apiUrl.toLowerCase();
+
+        if (urlLower.includes('openai.com')) {
+            serviceType = 'openai_official';
+        } else if (urlLower.includes('anthropic.com')) {
+            serviceType = 'anthropic_official';
+        } else if (urlLower.includes('googleapis.com')) {
+            serviceType = 'google_official';
+        } else if (urlLower.includes('nyabit.com')) {
+            serviceType = 'nyabit';
+        } else if (urlLower.includes('api2d.com')) {
+            serviceType = 'api2d';
+        } else if (urlLower.includes('closeai') || urlLower.includes('openai-proxy')) {
+            serviceType = 'openai_proxy';
+        } else if (urlLower.includes('claude') || urlLower.includes('anthropic')) {
+            serviceType = 'claude_proxy';
+        } else if (urlLower.includes('gemini') || urlLower.includes('google')) {
+            serviceType = 'google_proxy';
+        } else if (urlLower.includes('localhost') || urlLower.includes('127.0.0.1')) {
+            serviceType = 'local_api';
+        } else {
+            serviceType = 'generic_third_party';
+        }
+
+        console.log(`🏷️ 检测到服务类型: ${serviceType}`);
+
+        // 构建可能的模型端点列表
+        const baseUrl = apiUrl.replace(/\/+$/, ''); // 移除末尾斜杠
+        const possibleEndpoints = [];
+
+        // 标准OpenAI兼容端点
+        possibleEndpoints.push(
+            `${baseUrl}/models`,
+            `${baseUrl}/v1/models`,
+            `${baseUrl}/api/models`,
+            `${baseUrl}/api/v1/models`,
+            `${baseUrl}/openai/v1/models`
+        );
+
+        // 其他常见端点格式
+        possibleEndpoints.push(
+            `${baseUrl}/engines`,
+            `${baseUrl}/v1/engines`,
+            `${baseUrl}/model/list`,
+            `${baseUrl}/models/list`,
+            `${baseUrl}/list/models`
+        );
+
+        // 特定服务的端点
+        if (serviceType === 'anthropic_official' || serviceType === 'claude_proxy') {
+            possibleEndpoints.push(`${baseUrl}/v1/models`);
+        }
+        if (serviceType === 'google_official' || serviceType === 'google_proxy') {
+            possibleEndpoints.push(`${baseUrl}/models`, `${baseUrl}/v1beta/models`);
+        }
+        if (serviceType === 'local_api') {
+            possibleEndpoints.push(
+                `${baseUrl}/api/tags`, // Ollama
+                `${baseUrl}/tags`,     // Ollama简化
+                `${baseUrl}/info`      // 一些本地API的信息端点
+            );
+        }
+
+        console.log(`📡 将尝试 ${possibleEndpoints.length} 个端点:`, possibleEndpoints);
+
+        // 尝试不同的认证方式
+        const authMethods = [];
+
+        if (apiKey) {
+            // 标准Bearer Token认证
+            authMethods.push({
+                name: 'Bearer Token',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            // Claude风格的x-api-key认证
+            authMethods.push({
+                name: 'x-api-key',
+                headers: {
+                    'x-api-key': apiKey,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            // 一些API使用的api-key头
+            authMethods.push({
+                name: 'api-key',
+                headers: {
+                    'api-key': apiKey,
+                    'Content-Type': 'application/json'
+                }
+            });
+        }
+
+        // 无认证方式（本地API）
+        authMethods.push({
+            name: 'No Auth',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        console.log(`🔐 将尝试 ${authMethods.length} 种认证方式`);
+
+        // 遍历所有端点和认证方式的组合
+        for (const endpoint of possibleEndpoints) {
+            for (const authMethod of authMethods) {
+                try {
+                    console.log(`🔍 测试: ${endpoint} (${authMethod.name})`);
+
+                    const response = await fetch(endpoint, {
+                        method: 'GET',
+                        headers: authMethod.headers,
+                        signal: AbortSignal.timeout(8000) // 8秒超时
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log(`✅ 成功: ${endpoint} (${authMethod.name})`, data);
+
+                        // 通用模型数据解析器
+                        const models = parseModelsFromResponse(data, endpoint, serviceType);
+
+                        if (models.length > 0) {
+                            console.log(`🎉 成功获取 ${models.length} 个模型:`, models.map(m => m.name));
+                            return models;
+                        }
+                    } else if (response.status === 401 || response.status === 403) {
+                        console.log(`🔐 ${endpoint}: 认证失败 (${response.status}) - ${authMethod.name}`);
+                        // 继续尝试其他认证方式
+                    } else {
+                        console.log(`❌ ${endpoint}: HTTP ${response.status} - ${authMethod.name}`);
+
+                        // 对于非认证错误，尝试读取错误信息
+                        if (response.status !== 404) {
+                            try {
+                                const errorText = await response.text();
+                                if (errorText.length < 300) {
+                                    console.log(`错误详情:`, errorText);
+                                }
+                            } catch (e) {
+                                // 忽略错误读取失败
+                            }
+                        }
+                    }
+                } catch (error) {
+                    if (error.name === 'TimeoutError') {
+                        console.log(`⏰ ${endpoint}: 超时 - ${authMethod.name}`);
+                    } else if (error.message.includes('CORS')) {
+                        console.log(`🚫 ${endpoint}: CORS限制 - ${authMethod.name}`);
+                    } else {
+                        console.log(`❌ ${endpoint}: ${error.message} - ${authMethod.name}`);
+                    }
+                }
+            }
+        }
+
+        // 如果所有端点都失败，返回智能推荐的模型
+        console.log("⚠️ 无法从API获取模型列表，根据服务类型提供推荐模型");
+
+        return getRecommendedModels(serviceType, apiUrl);
+    };
+
+    /**
+     * 通用模型数据解析器
+     */
+    function parseModelsFromResponse(data, endpoint, serviceType) {
+        const models = [];
+
+        console.log(`🔍 解析响应数据，服务类型: ${serviceType}`);
+
+        // OpenAI标准格式: {data: [{id: "model-name", ...}, ...]}
+        if (data.data && Array.isArray(data.data)) {
+            console.log(`📋 检测到OpenAI标准格式，${data.data.length} 个模型`);
+            data.data.forEach(model => {
+                if (model.id || model.name) {
+                    models.push({
+                        id: model.id || model.name,
+                        name: model.id || model.name,
+                        type: 'third_party',
+                        status: 'available',
+                        source: endpoint,
+                        provider: `第三方API (${serviceType})`,
+                        details: model
+                    });
+                }
+            });
+        }
+
+        // 通用models数组格式: {models: [...]}
+        else if (data.models && Array.isArray(data.models)) {
+            console.log(`📋 检测到通用models格式，${data.models.length} 个模型`);
+            data.models.forEach(model => {
+                let modelId, modelName;
+
+                if (typeof model === 'string') {
+                    modelId = modelName = model;
+                } else if (model.id) {
+                    modelId = model.id;
+                    modelName = model.name || model.id;
+                } else if (model.name) {
+                    modelId = model.name;
+                    modelName = model.name;
+                } else if (model.model) {
+                    modelId = modelName = model.model;
+                }
+
+                if (modelId) {
+                    models.push({
+                        id: modelId,
+                        name: modelName,
+                        type: 'third_party',
+                        status: 'available',
+                        source: endpoint,
+                        provider: `第三方API (${serviceType})`,
+                        details: model
+                    });
+                }
+            });
+        }
+
+        // Ollama格式: {models: [{name: "model:tag", ...}, ...]}
+        else if (data.models && serviceType === 'local_api') {
+            console.log(`📋 检测到Ollama格式，${data.models.length} 个模型`);
+            data.models.forEach(model => {
+                if (model.name) {
+                    models.push({
+                        id: model.name,
+                        name: model.name,
+                        type: 'local_model',
+                        status: 'available',
+                        source: endpoint,
+                        provider: 'Ollama (本地)',
+                        details: model
+                    });
+                }
+            });
+        }
+
+        // 直接数组格式: ["model1", "model2", ...]
+        else if (Array.isArray(data)) {
+            console.log(`📋 检测到直接数组格式，${data.length} 个模型`);
+            data.forEach(model => {
+                if (typeof model === 'string') {
+                    models.push({
+                        id: model,
+                        name: model,
+                        type: 'third_party',
+                        status: 'available',
+                        source: endpoint,
+                        provider: `第三方API (${serviceType})`
+                    });
+                }
+            });
+        }
+
+        // 其他可能的格式
+        else if (data.result && Array.isArray(data.result)) {
+            console.log(`📋 检测到result数组格式，${data.result.length} 个模型`);
+            data.result.forEach(model => {
+                const modelId = typeof model === 'string' ? model : (model.id || model.name);
+                if (modelId) {
+                    models.push({
+                        id: modelId,
+                        name: modelId,
+                        type: 'third_party',
+                        status: 'available',
+                        source: endpoint,
+                        provider: `第三方API (${serviceType})`
+                    });
+                }
+            });
+        }
+
+        console.log(`✅ 解析完成，获得 ${models.length} 个模型`);
+        return models;
+    }
+
+    /**
+     * 根据服务类型获取推荐模型
+     */
+    function getRecommendedModels(serviceType, apiUrl) {
+        console.log(`🎯 为服务类型 ${serviceType} 生成推荐模型`);
+
+        let recommendedModels = [];
+
+        // 根据服务类型推荐不同的模型
+        switch (serviceType) {
+            case 'openai_official':
+            case 'openai_proxy':
+            case 'nyabit':
+            case 'api2d':
+            case 'generic_third_party':
+                recommendedModels = [
+                    { id: "gpt-4", name: "GPT-4" },
+                    { id: "gpt-4-turbo", name: "GPT-4 Turbo" },
+                    { id: "gpt-4-turbo-preview", name: "GPT-4 Turbo Preview" },
+                    { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
+                    { id: "gpt-3.5-turbo-16k", name: "GPT-3.5 Turbo 16K" }
+                ];
+                break;
+
+            case 'anthropic_official':
+            case 'claude_proxy':
+                recommendedModels = [
+                    { id: "claude-3-opus-20240229", name: "Claude 3 Opus" },
+                    { id: "claude-3-sonnet-20240229", name: "Claude 3 Sonnet" },
+                    { id: "claude-3-haiku-20240307", name: "Claude 3 Haiku" },
+                    { id: "claude-2.1", name: "Claude 2.1" },
+                    { id: "claude-2.0", name: "Claude 2.0" }
+                ];
+                break;
+
+            case 'google_official':
+            case 'google_proxy':
+                recommendedModels = [
+                    { id: "gemini-pro", name: "Gemini Pro" },
+                    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro" },
+                    { id: "gemini-pro-vision", name: "Gemini Pro Vision" }
+                ];
+                break;
+
+            case 'local_api':
+                recommendedModels = [
+                    { id: "llama2", name: "Llama 2" },
+                    { id: "codellama", name: "Code Llama" },
+                    { id: "mistral", name: "Mistral" },
+                    { id: "vicuna", name: "Vicuna" },
+                    { id: "alpaca", name: "Alpaca" }
+                ];
+                break;
+
+            default:
+                // 通用推荐
+                recommendedModels = [
+                    { id: "gpt-4", name: "GPT-4" },
+                    { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
+                    { id: "claude-3-sonnet-20240229", name: "Claude 3 Sonnet" },
+                    { id: "gemini-pro", name: "Gemini Pro" }
+                ];
+        }
+
+        return recommendedModels.map(model => ({
+            id: model.id,
+            name: model.name,
+            type: 'recommended',
+            status: 'suggested',
+            source: 'recommendation',
+            provider: `推荐模型 (${serviceType})`,
+            note: '基于API类型的智能推荐'
+        }));
+    }
 
     /**
      * 测试AI回复功能
