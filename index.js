@@ -309,7 +309,11 @@ jQuery(async () => {
 
         if (selectedType === 'custom') {
             const customPersonality = localStorage.getItem(`${extensionName}-custom-personality`) || '';
-            return customPersonality || PRESET_PERSONALITIES.default;
+            // 如果自定义人设为空，返回通用的默认人设，避免动物类型混淆
+            if (!customPersonality.trim()) {
+                return "一个可爱的虚拟宠物，性格温和友善，喜欢和主人互动。";
+            }
+            return customPersonality;
         } else {
             return PRESET_PERSONALITIES[selectedType] || PRESET_PERSONALITIES.default;
         }
@@ -1205,13 +1209,38 @@ jQuery(async () => {
     async function callCustomAPI(prompt, settings, timeout = 30000) {
         console.log(`[${extensionName}] 调用自定义API: ${settings.apiType}，超时时间: ${timeout}ms`);
 
-        // 构建请求URL
+        // 智能构建请求URL - 修复移动端404问题
         let apiUrl = settings.apiUrl;
-        if (settings.apiType === 'openai' && !apiUrl.includes('/chat/completions')) {
-            apiUrl = apiUrl.replace(/\/$/, '') + '/chat/completions';
+
+        // 移除末尾斜杠
+        apiUrl = apiUrl.replace(/\/+$/, '');
+
+        // 智能添加正确的端点路径
+        if (settings.apiType === 'openai' || settings.apiType === 'custom') {
+            if (!apiUrl.includes('/chat/completions')) {
+                // 检查是否已经包含v1路径
+                if (apiUrl.includes('/v1')) {
+                    apiUrl = apiUrl + '/chat/completions';
+                } else {
+                    // 智能判断是否需要添加/v1
+                    if (apiUrl.includes('api.openai.com') ||
+                        apiUrl.includes('localhost') ||
+                        apiUrl.includes('127.0.0.1') ||
+                        apiUrl.includes('/api/')) {
+                        apiUrl = apiUrl + '/v1/chat/completions';
+                    } else {
+                        apiUrl = apiUrl + '/chat/completions';
+                    }
+                }
+            }
+        } else if (settings.apiType === 'claude') {
+            if (!apiUrl.includes('/messages')) {
+                apiUrl = apiUrl.includes('/v1') ? apiUrl + '/messages' : apiUrl + '/v1/messages';
+            }
         }
 
-        console.log(`[${extensionName}] 发送请求到: ${apiUrl}`);
+        console.log(`[${extensionName}] 原始URL: ${settings.apiUrl}`);
+        console.log(`[${extensionName}] 修正后URL: ${apiUrl}`);
 
         // 构建请求头
         const headers = {
@@ -1267,12 +1296,32 @@ jQuery(async () => {
         console.log(`[${extensionName}] 请求体:`, requestBody);
 
         try {
-            const response = await fetch(apiUrl, {
+            // 移动端API连接优化
+            const fetchOptions = {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify(requestBody),
                 signal: controller.signal
-            });
+            };
+
+            // 移动端特殊处理
+            const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            if (isMobile) {
+                // 移动端增加更长的超时时间
+                clearTimeout(timeoutId);
+                const mobileTimeoutId = setTimeout(() => controller.abort(), timeout + 10000); // 额外10秒
+
+                // 移动端添加额外的请求头
+                fetchOptions.headers = {
+                    ...fetchOptions.headers,
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                };
+
+                console.log(`[${extensionName}] 移动端API请求优化已应用`);
+            }
+
+            const response = await fetch(apiUrl, fetchOptions);
 
             const endTime = Date.now();
             const duration = endTime - startTime;
@@ -1356,11 +1405,16 @@ jQuery(async () => {
 
 
 
-        // 构建完整的Prompt
-        const prompt = `你是${petData.name}，请根据以下设定直接回应用户的行为。
+        // 获取当前人设，确保不包含冲突信息
+        const currentPersonality = getCurrentPersonality();
 
-【你的身份和性格】：
-${getCurrentPersonality()}
+        // 构建完整的Prompt - 优化版本，避免身份混淆
+        const prompt = `你是${petData.name}，请严格按照以下人设回应用户。
+
+【你的身份设定】：
+${currentPersonality}
+
+【重要】：请完全按照上述身份设定回应，不要添加任何其他身份特征。
 
 【当前状态】：
 - 健康：${Math.round(petData.health)}/100 ${petData.health < 30 ? '(感觉不太舒服)' : petData.health > 70 ? '(精神很好)' : '(还算健康)'}
@@ -1370,7 +1424,7 @@ ${getCurrentPersonality()}
 
 【情景】：现在是${timeOfDay}，用户刚刚${actionDescriptions[action]}。
 
-请直接以${petData.name}的身份，根据你的性格和当前状态回应（不超过30字）：`;
+请以${petData.name}的身份，严格按照你的人设回应（不超过30字）：`;
 
         return prompt;
     }
@@ -9870,12 +9924,324 @@ ${getCurrentPersonality()}
         console.log("当前人设:", getCurrentPersonality());
     };
 
+    /**
+     * 移动端API连接诊断和修复
+     */
+    window.diagnoseMobileAPI = function() {
+        console.log('📱 移动端API连接诊断...');
+
+        // 检测设备类型
+        const userAgent = navigator.userAgent;
+        const isIOS = /iPad|iPhone|iPod/.test(userAgent);
+        const isAndroid = /Android/.test(userAgent);
+        const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+
+        console.log('\n📱 设备信息:');
+        console.log(`User Agent: ${userAgent}`);
+        console.log(`iOS: ${isIOS}`);
+        console.log(`Android: ${isAndroid}`);
+        console.log(`移动端: ${isMobile}`);
+        console.log(`窗口尺寸: ${window.innerWidth}x${window.innerHeight}`);
+
+        // 检查网络连接
+        console.log('\n🌐 网络连接:');
+        console.log(`在线状态: ${navigator.onLine ? '✅ 在线' : '❌ 离线'}`);
+        console.log(`连接类型: ${navigator.connection ? navigator.connection.effectiveType : '未知'}`);
+
+        // 检查API配置
+        console.log('\n🔧 API配置:');
+        const apiUrl = $('#ai-url-input').val();
+        const apiKey = $('#ai-key-input').val();
+        console.log(`API URL: ${apiUrl || '❌ 未配置'}`);
+        console.log(`API Key: ${apiKey ? '✅ 已配置' : '❌ 未配置'}`);
+
+        // 移动端特殊问题检查
+        console.log('\n🔍 移动端特殊问题:');
+
+        // 1. CORS问题
+        if (apiUrl && !apiUrl.includes('localhost') && !apiUrl.includes('127.0.0.1')) {
+            console.log('⚠️ 外部API可能存在CORS限制');
+            console.log('💡 建议: 使用支持CORS的API或本地代理');
+        }
+
+        // 2. HTTPS问题
+        if (location.protocol === 'https:' && apiUrl && apiUrl.startsWith('http:')) {
+            console.log('❌ HTTPS页面无法访问HTTP API');
+            console.log('💡 建议: 使用HTTPS API或在HTTP环境下使用');
+        }
+
+        // 3. 移动端网络限制
+        if (isMobile) {
+            console.log('📱 移动端网络优化建议:');
+            console.log('- 使用稳定的WiFi连接');
+            console.log('- 避免使用移动数据访问外部API');
+            console.log('- 增加请求超时时间');
+        }
+
+        return {
+            device: { userAgent, isIOS, isAndroid, isMobile },
+            network: { online: navigator.onLine, connection: navigator.connection },
+            api: { url: apiUrl, hasKey: !!apiKey },
+            recommendations: getMobileAPIRecommendations(isMobile, apiUrl, apiKey)
+        };
+    };
+
+    /**
+     * 获取移动端API连接建议
+     */
+    function getMobileAPIRecommendations(isMobile, apiUrl, apiKey) {
+        const recommendations = [];
+
+        if (isMobile) {
+            recommendations.push('使用稳定的WiFi网络');
+            recommendations.push('避免在移动数据下使用外部API');
+        }
+
+        if (!apiUrl) {
+            recommendations.push('配置API URL');
+        }
+
+        if (!apiKey) {
+            recommendations.push('配置API密钥');
+        }
+
+        if (apiUrl && apiUrl.startsWith('http:') && location.protocol === 'https:') {
+            recommendations.push('使用HTTPS API或切换到HTTP环境');
+        }
+
+        return recommendations;
+    }
+
+    /**
+     * 移动端API URL智能修复
+     */
+    window.fixMobileAPIURL = function(originalUrl) {
+        console.log('🔧 移动端API URL智能修复...');
+        console.log(`原始URL: ${originalUrl}`);
+
+        if (!originalUrl) {
+            console.log('❌ URL为空');
+            return null;
+        }
+
+        // 移除末尾斜杠
+        let fixedUrl = originalUrl.replace(/\/+$/, '');
+
+        // 常见的移动端404问题修复
+        const fixes = [];
+
+        // 1. 缺少/v1路径
+        if (!fixedUrl.includes('/v1') && !fixedUrl.includes('/api/v1')) {
+            if (fixedUrl.includes('openai.com') ||
+                fixedUrl.includes('localhost') ||
+                fixedUrl.includes('127.0.0.1')) {
+                fixes.push({
+                    type: '添加/v1路径',
+                    url: fixedUrl + '/v1',
+                    reason: '标准OpenAI API需要/v1路径'
+                });
+            }
+        }
+
+        // 2. 缺少/chat/completions端点
+        if (!fixedUrl.includes('/chat/completions')) {
+            fixes.push({
+                type: '添加聊天端点',
+                url: fixedUrl + '/chat/completions',
+                reason: '聊天API需要/chat/completions端点'
+            });
+
+            if (fixedUrl.includes('/v1')) {
+                fixes.push({
+                    type: '添加聊天端点(v1)',
+                    url: fixedUrl + '/chat/completions',
+                    reason: '已有v1路径，直接添加聊天端点'
+                });
+            } else {
+                fixes.push({
+                    type: '添加完整路径',
+                    url: fixedUrl + '/v1/chat/completions',
+                    reason: '添加完整的v1聊天端点路径'
+                });
+            }
+        }
+
+        // 3. 协议问题修复
+        if (fixedUrl.startsWith('http:') && location.protocol === 'https:') {
+            fixes.push({
+                type: 'HTTPS协议修复',
+                url: fixedUrl.replace('http:', 'https:'),
+                reason: 'HTTPS页面需要HTTPS API'
+            });
+        }
+
+        // 4. 端口问题修复
+        if (fixedUrl.includes('localhost') && !fixedUrl.includes(':')) {
+            fixes.push({
+                type: '添加默认端口',
+                url: fixedUrl.replace('localhost', 'localhost:1234'),
+                reason: 'LM Studio默认端口1234'
+            });
+            fixes.push({
+                type: '添加Ollama端口',
+                url: fixedUrl.replace('localhost', 'localhost:11434'),
+                reason: 'Ollama默认端口11434'
+            });
+        }
+
+        console.log(`🔧 发现 ${fixes.length} 个可能的修复方案:`);
+        fixes.forEach((fix, index) => {
+            console.log(`${index + 1}. ${fix.type}: ${fix.url} (${fix.reason})`);
+        });
+
+        return fixes;
+    };
+
+    /**
+     * 移动端API连接测试 - 增强版
+     */
+    window.testMobileAPIConnection = async function() {
+        console.log('📱 测试移动端API连接...');
+
+        const originalUrl = $('#ai-url-input').val();
+        const apiKey = $('#ai-key-input').val();
+
+        if (!originalUrl) {
+            console.log('❌ 请先配置API URL');
+            toastr.error('请先配置API URL');
+            return false;
+        }
+
+        // 获取URL修复建议
+        const urlFixes = window.fixMobileAPIURL(originalUrl);
+
+        // 要测试的URL列表
+        const urlsToTest = [originalUrl];
+        if (urlFixes && urlFixes.length > 0) {
+            urlFixes.forEach(fix => urlsToTest.push(fix.url));
+        }
+
+        console.log(`🔍 将测试 ${urlsToTest.length} 个URL...`);
+
+        for (let i = 0; i < urlsToTest.length; i++) {
+            const testUrl = urlsToTest[i];
+            console.log(`\n🔗 测试 ${i + 1}/${urlsToTest.length}: ${testUrl}`);
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000); // 移动端15秒超时
+
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                };
+
+                if (apiKey) {
+                    headers['Authorization'] = `Bearer ${apiKey}`;
+                }
+
+                // 尝试models端点而不是chat端点进行测试
+                let testEndpoint = testUrl;
+                if (testUrl.includes('/chat/completions')) {
+                    testEndpoint = testUrl.replace('/chat/completions', '/models');
+                } else if (!testUrl.includes('/models')) {
+                    testEndpoint = testUrl + '/models';
+                }
+
+                console.log(`📡 实际测试端点: ${testEndpoint}`);
+
+                const response = await fetch(testEndpoint, {
+                    method: 'GET',
+                    headers: headers,
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                console.log(`📊 响应状态: ${response.status} ${response.statusText}`);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('✅ 连接成功!', data);
+
+                    // 如果成功的URL不是原始URL，建议用户更新
+                    if (testUrl !== originalUrl) {
+                        const message = `📱 建议更新API URL为: ${testUrl}`;
+                        console.log(message);
+                        toastr.success(message, '连接成功!', { timeOut: 8000 });
+
+                        // 询问是否自动更新URL
+                        if (confirm(`API连接成功!\n\n建议将URL更新为:\n${testUrl}\n\n是否自动更新?`)) {
+                            $('#ai-url-input').val(testUrl);
+                            toastr.info('API URL已自动更新');
+                        }
+                    } else {
+                        toastr.success('📱 移动端API连接测试成功!');
+                    }
+
+                    return true;
+
+                } else if (response.status === 404) {
+                    console.log(`❌ 404错误: ${testEndpoint} 端点不存在`);
+                    if (i === 0) {
+                        console.log('💡 尝试修复URL...');
+                    }
+                } else if (response.status === 401 || response.status === 403) {
+                    console.log(`🔐 认证错误: ${response.status} - 可能需要正确的API密钥`);
+                    if (i === 0) {
+                        toastr.warning('API认证失败，请检查API密钥');
+                    }
+                } else {
+                    console.log(`⚠️ HTTP错误: ${response.status} ${response.statusText}`);
+                }
+
+            } catch (error) {
+                console.log(`❌ 连接失败: ${error.message}`);
+
+                if (error.name === 'AbortError') {
+                    console.log('⏰ 请求超时');
+                    if (i === 0) {
+                        console.log('💡 建议: 网络较慢，尝试使用更稳定的网络');
+                    }
+                } else if (error.message.includes('CORS')) {
+                    console.log('🚫 CORS限制');
+                    if (i === 0) {
+                        console.log('💡 建议: API不支持跨域访问，尝试使用本地代理');
+                    }
+                } else if (error.message.includes('Failed to fetch')) {
+                    console.log('🌐 网络连接失败');
+                    if (i === 0) {
+                        console.log('💡 建议: 检查网络连接或API服务是否运行');
+                    }
+                }
+            }
+        }
+
+        // 所有URL都失败
+        console.log('\n❌ 所有URL测试都失败了');
+        toastr.error('📱 移动端API连接失败，请检查配置', '连接失败', { timeOut: 5000 });
+
+        // 提供详细的故障排除建议
+        console.log('\n🔧 移动端API 404故障排除建议:');
+        console.log('1. 检查API URL格式是否正确');
+        console.log('2. 确认API服务正在运行');
+        console.log('3. 检查网络连接');
+        console.log('4. 尝试使用本地API (Ollama/LM Studio)');
+        console.log('5. 检查CORS设置');
+
+        return false;
+    };
+
     console.log("🐾 虚拟宠物系统加载完成！");
     console.log("🐾 如果没有看到按钮，请在控制台运行: testVirtualPet()");
     console.log("🎉 AI人设功能已加载！可用测试命令:");
     console.log("  - testVirtualPetAI() - 检查AI功能状态");
     console.log("  - testAIReply('feed'|'play'|'sleep') - 手动测试AI回复");
     console.log("  - testPersonalitySwitch('default'|'cheerful'|'elegant'|'shy'|'smart'|'custom') - 测试人设切换");
+    console.log("📱 移动端专用命令:");
+    console.log("  - diagnoseMobileAPI() - 移动端API诊断");
+    console.log("  - testMobileAPIConnection() - 测试移动端API连接");
 
     /**
      * 测试新的提示词系统
