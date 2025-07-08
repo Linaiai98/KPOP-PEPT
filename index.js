@@ -1217,71 +1217,29 @@ jQuery(async () => {
      */
     async function callAIAPI(prompt, timeout = 30000) {
         try {
-            let result = null;
-
-            // 首先尝试使用自定义API配置
+            // 只使用自定义API配置
             const settings = loadAISettings();
-            if (settings.apiType && settings.apiUrl && settings.apiKey) {
-                console.log(`[${extensionName}] 使用自定义API: ${settings.apiType}`);
-                result = await callCustomAPI(prompt, settings, timeout);
+            if (!settings.apiType || !settings.apiUrl || !settings.apiKey) {
+                throw new Error('请先在插件设置中配置API信息（类型、URL和密钥）');
             }
 
-            // 如果自定义API失败或不可用，回退到SillyTavern API
-            if (!result) {
-                if (typeof window.generateReply === 'function') {
-                    // 方法1：直接调用generateReply函数
-                    console.log(`[${extensionName}] 使用generateReply API`);
-                    result = await window.generateReply(prompt);
-                } else if (typeof window.SillyTavern !== 'undefined' && window.SillyTavern.generateReply) {
-                    // 方法2：通过SillyTavern命名空间调用
-                    console.log(`[${extensionName}] 使用SillyTavern.generateReply API`);
-                    result = await window.SillyTavern.generateReply(prompt);
-                } else if (typeof window.Generate !== 'undefined') {
-                    // 方法3：使用Generate函数
-                    console.log(`[${extensionName}] 使用Generate API`);
-                    result = await window.Generate(prompt);
-                } else {
-                    // 方法4：尝试通过fetch调用SillyTavern的内部API
-                    console.log(`[${extensionName}] 尝试通过fetch调用SillyTavern内部API`);
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), timeout);
+            console.log(`[${extensionName}] 使用自定义API: ${settings.apiType}`);
+            const result = await callCustomAPI(prompt, settings, timeout);
 
-                    try {
-                        const response = await fetch('/api/v1/generate', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                prompt: prompt,
-                                max_length: 100,
-                                temperature: 0.8
-                            }),
-                            signal: controller.signal
-                        });
+            console.log(`[${extensionName}] API原始返回结果:`, result);
+            console.log(`[${extensionName}] 结果类型:`, typeof result);
+            console.log(`[${extensionName}] 结果长度:`, result ? result.length : 'null/undefined');
 
-                        clearTimeout(timeoutId);
-
-                        if (response.ok) {
-                            const data = await response.json();
-                            result = data.text || data.response || data.result;
-                        } else {
-                            throw new Error(`SillyTavern API调用失败: ${response.status}`);
-                        }
-                    } catch (error) {
-                        clearTimeout(timeoutId);
-                        if (error.name === 'AbortError') {
-                            throw new Error('SillyTavern API调用超时');
-                        }
-                        throw error;
-                    }
-                }
-            }
-
-            // 验证返回结果
-            if (typeof result === 'string' && result.trim().length > 0) {
+            if (result && result.trim()) {
+                console.log(`[${extensionName}] 自定义API调用成功，返回内容: "${result.trim()}"`);
                 return result.trim();
             } else {
+                console.log(`[${extensionName}] API返回内容无效:`, {
+                    result: result,
+                    isString: typeof result === 'string',
+                    isEmpty: !result,
+                    trimmed: result ? result.trim() : 'cannot trim'
+                });
                 throw new Error('API返回了空的或无效的回复');
             }
 
@@ -1333,16 +1291,46 @@ jQuery(async () => {
                     apiUrl = apiUrl + '/messages';
                 }
             }
+        } else if (settings.apiType === 'google') {
+            // Google Gemini API 特殊处理
+            if (!apiUrl.includes(':generateContent')) {
+                // 构建正确的Gemini API端点
+                const modelName = settings.apiModel || 'gemini-pro';
+                if (apiUrl.endsWith('/v1beta')) {
+                    apiUrl = apiUrl + `/models/${modelName}:generateContent`;
+                } else if (!apiUrl.includes('/v1beta')) {
+                    apiUrl = apiUrl + `/v1beta/models/${modelName}:generateContent`;
+                } else {
+                    apiUrl = apiUrl + `/models/${modelName}:generateContent`;
+                }
+            }
         }
 
         console.log(`[${extensionName}] 原始URL: ${settings.apiUrl}`);
         console.log(`[${extensionName}] 修正后URL: ${apiUrl}`);
+        console.log(`[${extensionName}] API类型: ${settings.apiType}`);
 
-        // 构建请求头
+        // 构建请求头（根据API类型）
         const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${settings.apiKey}`
+            'Content-Type': 'application/json'
         };
+
+        // 根据API类型设置认证头
+        if (settings.apiType === 'google') {
+            // Google API 使用 x-goog-api-key 头或者URL参数
+            headers['x-goog-api-key'] = settings.apiKey;
+            // 也可以通过URL参数传递，如果头部认证失败的话
+            if (!apiUrl.includes('?key=') && !apiUrl.includes('&key=')) {
+                apiUrl += `?key=${settings.apiKey}`;
+            }
+        } else if (settings.apiType === 'claude') {
+            // Claude API 使用 x-api-key
+            headers['x-api-key'] = settings.apiKey;
+            headers['anthropic-version'] = '2023-06-01';
+        } else {
+            // OpenAI 和其他 API 使用 Bearer token
+            headers['Authorization'] = `Bearer ${settings.apiKey}`;
+        }
 
         // 构建请求体（根据API类型）
         let requestBody;
@@ -1355,13 +1343,13 @@ jQuery(async () => {
                         content: prompt
                     }
                 ],
-                max_tokens: 150,
+                max_tokens: 10000,  // 大幅增加token限制
                 temperature: 0.8
             };
         } else if (settings.apiType === 'claude') {
             requestBody = {
                 model: settings.apiModel || 'claude-3-sonnet-20240229',
-                max_tokens: 150,
+                max_tokens: 10000,  // 大幅增加token限制
                 messages: [
                     {
                         role: 'user',
@@ -1369,12 +1357,29 @@ jQuery(async () => {
                     }
                 ]
             };
+        } else if (settings.apiType === 'google') {
+            // Google Gemini API 格式
+            requestBody = {
+                contents: [
+                    {
+                        parts: [
+                            {
+                                text: prompt
+                            }
+                        ]
+                    }
+                ],
+                generationConfig: {
+                    maxOutputTokens: 10000,  // 大幅增加token限制
+                    temperature: 0.8
+                }
+            };
         } else {
             // 通用格式
             requestBody = {
                 model: settings.apiModel || 'default',
                 prompt: prompt,
-                max_tokens: 150,
+                max_tokens: 10000,  // 大幅增加token限制
                 temperature: 0.8
             };
         }
@@ -1390,6 +1395,7 @@ jQuery(async () => {
         console.log(`[${extensionName}] 开始发送请求，时间戳: ${startTime}`);
         console.log(`[${extensionName}] 请求头:`, headers);
         console.log(`[${extensionName}] 请求体:`, requestBody);
+        console.log(`[${extensionName}] 请求体JSON:`, JSON.stringify(requestBody, null, 2));
 
         try {
             // 移动端API连接优化
@@ -1441,17 +1447,117 @@ jQuery(async () => {
             const data = await response.json();
             console.log(`[${extensionName}] API响应数据:`, data);
 
-            // 根据API类型解析响应
-            let result = '';
-            if (settings.apiType === 'openai' || settings.apiType === 'custom') {
-                result = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || '';
-            } else if (settings.apiType === 'claude') {
-                result = data.content?.[0]?.text || '';
-            } else {
-                result = data.text || data.response || data.result || '';
+            // 深度分析响应结构
+            console.log(`[${extensionName}] 🔍 深度响应分析:`);
+            console.log(`- 响应对象类型:`, typeof data);
+            console.log(`- 响应对象键:`, Object.keys(data));
+            if (data.choices && data.choices.length > 0) {
+                console.log(`- choices[0]完整内容:`, JSON.stringify(data.choices[0], null, 2));
+                if (data.choices[0].message) {
+                    console.log(`- message对象键:`, Object.keys(data.choices[0].message));
+                    console.log(`- message完整内容:`, JSON.stringify(data.choices[0].message, null, 2));
+                }
             }
 
-            console.log(`[${extensionName}] 解析出的结果:`, result);
+            // 详细分析响应结构
+            console.log(`[${extensionName}] 响应结构分析:`, {
+                'data.choices存在': !!data.choices,
+                'choices长度': data.choices?.length,
+                'choices[0]存在': !!data.choices?.[0],
+                'choices[0]的所有键': data.choices?.[0] ? Object.keys(data.choices[0]) : 'N/A'
+            });
+
+            // 根据API类型解析响应
+            let result = '';
+            console.log(`[${extensionName}] 开始解析响应，API类型: ${settings.apiType}`);
+
+            if (settings.apiType === 'openai' || settings.apiType === 'custom') {
+                console.log(`[${extensionName}] 使用OpenAI格式解析`);
+
+                // 尝试多种OpenAI兼容格式的解析路径
+                result = data.choices?.[0]?.message?.content ||
+                         data.choices?.[0]?.text ||
+                         data.choices?.[0]?.delta?.content ||
+                         data.choices?.[0]?.message?.text ||
+                         '';
+
+                console.log(`[${extensionName}] OpenAI解析路径:`, {
+                    'choices[0].message.content': data.choices?.[0]?.message?.content,
+                    'choices[0].text': data.choices?.[0]?.text,
+                    'choices[0].delta.content': data.choices?.[0]?.delta?.content,
+                    'choices[0].message.text': data.choices?.[0]?.message?.text,
+                    'choices[0].finish_reason': data.choices?.[0]?.finish_reason,
+                    'choices_array': data.choices,
+                    'first_choice': data.choices?.[0],
+                    'final_result': result
+                });
+
+                // 检查finish_reason
+                const finishReason = data.choices?.[0]?.finish_reason;
+                if (finishReason === 'length') {
+                    console.log(`[${extensionName}] ⚠️ 响应被截断！finish_reason: length - 需要增加max_tokens`);
+                } else if (finishReason) {
+                    console.log(`[${extensionName}] finish_reason: ${finishReason}`);
+                }
+
+                // 如果还是空的，尝试其他可能的字段
+                if (!result && data.choices?.[0]) {
+                    const choice = data.choices[0];
+                    console.log(`[${extensionName}] 第一个choice的完整结构:`, choice);
+
+                    // 尝试更多可能的字段
+                    result = choice.content || choice.response || choice.output || '';
+                    console.log(`[${extensionName}] 备用字段解析:`, {
+                        'choice.content': choice.content,
+                        'choice.response': choice.response,
+                        'choice.output': choice.output,
+                        'backup_result': result
+                    });
+                }
+            } else if (settings.apiType === 'claude') {
+                console.log(`[${extensionName}] 使用Claude格式解析`);
+                result = data.content?.[0]?.text || '';
+                console.log(`[${extensionName}] Claude解析路径:`, {
+                    'content[0].text': data.content?.[0]?.text,
+                    'final_result': result
+                });
+            } else if (settings.apiType === 'google') {
+                console.log(`[${extensionName}] 使用Google Gemini格式解析`);
+                // Google Gemini API 响应格式
+                result = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                console.log(`[${extensionName}] Gemini解析路径:`, {
+                    'candidates[0].content.parts[0].text': data.candidates?.[0]?.content?.parts?.[0]?.text,
+                    'primary_result': result
+                });
+
+                // 备用解析路径
+                if (!result) {
+                    result = data.text || data.response || data.result || '';
+                    console.log(`[${extensionName}] Gemini备用解析路径:`, {
+                        'data.text': data.text,
+                        'data.response': data.response,
+                        'data.result': data.result,
+                        'backup_result': result
+                    });
+                }
+            } else {
+                console.log(`[${extensionName}] 使用通用格式解析`);
+                result = data.text || data.response || data.result || '';
+                console.log(`[${extensionName}] 通用解析路径:`, {
+                    'data.text': data.text,
+                    'data.response': data.response,
+                    'data.result': data.result,
+                    'final_result': result
+                });
+            }
+
+            console.log(`[${extensionName}] 最终解析结果:`, {
+                result: result,
+                type: typeof result,
+                length: result ? result.length : 'null/undefined',
+                trimmed: result ? result.trim() : 'cannot trim'
+            });
+
             return result.trim();
 
         } catch (error) {
@@ -1468,18 +1574,18 @@ jQuery(async () => {
      * @returns {boolean} - API是否可用
      */
     function isAIAPIAvailable() {
-        // 检查SillyTavern API
-        const sillyTavernAvailable = (
-            typeof window.generateReply === 'function' ||
-            (typeof window.SillyTavern !== 'undefined' && window.SillyTavern.generateReply) ||
-            typeof window.Generate === 'function'
-        );
-
-        // 检查自定义AI配置
+        // 只检查自定义AI配置
         const settings = loadAISettings();
         const customAPIAvailable = settings.apiType && settings.apiUrl && settings.apiKey;
 
-        return sillyTavernAvailable || customAPIAvailable;
+        console.log(`[${extensionName}] API可用性检查:`, {
+            apiType: settings.apiType || '未设置',
+            apiUrl: settings.apiUrl || '未设置',
+            apiKey: settings.apiKey ? '已设置' : '未设置',
+            available: customAPIAvailable
+        });
+
+        return customAPIAvailable;
     }
 
     /**
@@ -10345,6 +10451,13 @@ ${currentPersonality}
     console.log("  - diagnoseMobileAPI() - 移动端API诊断");
     console.log("  - testMobileAPIConnection() - 测试移动端API连接");
     console.log("  - testURLBuilder('your-url') - 测试URL自动构建功能");
+    console.log("🤖 第三方API专用命令:");
+    console.log("  - testGeminiAPI() - 测试Gemini API连接和格式");
+    console.log("  - testThirdPartyAPI() - 测试当前配置的第三方API");
+    console.log("  - debugAPICall() - 调试API调用流程");
+    console.log("  - debugAPIResponse() - 调试API响应解析");
+    console.log("  - quickFixAPI() - 快速修复API响应解析问题");
+    console.log("  - testSimpleRequest() - 测试简化的请求格式");
 
     /**
      * 测试URL自动构建功能
@@ -10413,6 +10526,396 @@ ${currentPersonality}
         }
 
         return prompt;
+    };
+
+    /**
+     * 测试Gemini API连接和格式
+     */
+    window.testGeminiAPI = async function() {
+        console.log('🤖 测试Gemini API连接和格式...');
+
+        const apiUrl = $('#ai-url-input').val();
+        const apiKey = $('#ai-key-input').val();
+        const apiModel = $('#ai-model-input').val() || 'gemini-pro';
+
+        if (!apiUrl) {
+            console.log('❌ 请先配置API URL');
+            toastr.error('请先配置API URL');
+            return false;
+        }
+
+        if (!apiKey) {
+            console.log('❌ 请先配置API密钥');
+            toastr.error('请先配置API密钥');
+            return false;
+        }
+
+        console.log(`🔗 API URL: ${apiUrl}`);
+        console.log(`🔑 API Key: ${apiKey ? '已设置' : '未设置'}`);
+        console.log(`🤖 模型: ${apiModel}`);
+
+        // 构建测试设置
+        const testSettings = {
+            apiType: 'google',
+            apiUrl: apiUrl,
+            apiKey: apiKey,
+            apiModel: apiModel
+        };
+
+        try {
+            console.log('\n📡 开始测试Gemini API...');
+            const testPrompt = "请简单回复'测试成功'，不超过10个字。";
+
+            const response = await callCustomAPI(testPrompt, testSettings, 15000);
+
+            if (response && response.trim()) {
+                console.log('✅ Gemini API测试成功!');
+                console.log(`📝 AI回复: ${response}`);
+                toastr.success(`Gemini API测试成功！AI回复: ${response.substring(0, 50)}`, '🤖 测试成功');
+                return true;
+            } else {
+                console.log('❌ Gemini API返回空响应');
+                toastr.error('Gemini API返回空响应', '❌ 测试失败');
+                return false;
+            }
+
+        } catch (error) {
+            console.error('❌ Gemini API测试失败:', error);
+
+            // 提供详细的错误分析
+            if (error.message.includes('500')) {
+                console.log('💡 500错误可能原因:');
+                console.log('1. 请求格式不正确');
+                console.log('2. 模型名称错误');
+                console.log('3. API密钥权限不足');
+                toastr.error('500错误：请检查请求格式和模型名称', '❌ 服务器错误', { timeOut: 8000 });
+            } else if (error.message.includes('401') || error.message.includes('403')) {
+                console.log('💡 认证错误可能原因:');
+                console.log('1. API密钥无效');
+                console.log('2. API密钥权限不足');
+                console.log('3. 认证头格式错误');
+                toastr.error('认证失败：请检查API密钥', '❌ 认证错误', { timeOut: 8000 });
+            } else if (error.message.includes('404')) {
+                console.log('💡 404错误可能原因:');
+                console.log('1. API端点URL错误');
+                console.log('2. 模型名称不存在');
+                console.log('3. API版本不正确');
+                toastr.error('404错误：请检查API URL和模型名称', '❌ 端点错误', { timeOut: 8000 });
+            }
+
+            toastr.error(`Gemini API测试失败: ${error.message}`, '❌ 测试失败', { timeOut: 10000 });
+            return false;
+        }
+    };
+
+    /**
+     * 测试当前配置的第三方API
+     */
+    window.testThirdPartyAPI = async function() {
+        console.log('🌐 测试当前配置的第三方API...');
+
+        const settings = loadAISettings();
+        console.log('📋 当前API配置:', settings);
+
+        if (!settings.apiType || !settings.apiUrl || !settings.apiKey) {
+            console.log('❌ API配置不完整');
+            console.log(`API类型: ${settings.apiType || '未设置'}`);
+            console.log(`API URL: ${settings.apiUrl || '未设置'}`);
+            console.log(`API密钥: ${settings.apiKey ? '已设置' : '未设置'}`);
+            toastr.error('请先完整配置API信息', '❌ 配置不完整');
+            return false;
+        }
+
+        try {
+            console.log('\n📡 开始测试第三方API...');
+            const testPrompt = "请简单回复'测试成功'，不超过10个字。";
+
+            const response = await callCustomAPI(testPrompt, settings, 15000);
+
+            if (response && response.trim()) {
+                console.log('✅ 第三方API测试成功!');
+                console.log(`📝 AI回复: ${response}`);
+                toastr.success(`第三方API测试成功！AI回复: ${response.substring(0, 50)}`, '🌐 测试成功');
+                return true;
+            } else {
+                console.log('❌ 第三方API返回空响应');
+                toastr.error('第三方API返回空响应', '❌ 测试失败');
+                return false;
+            }
+
+        } catch (error) {
+            console.error('❌ 第三方API测试失败:', error);
+
+            // 提供详细的错误分析
+            if (error.message.includes('500')) {
+                console.log('💡 500错误分析:');
+                console.log('1. 请求格式可能不正确');
+                console.log('2. 模型名称可能错误');
+                console.log('3. API服务器内部错误');
+                console.log('4. 请求参数不符合API要求');
+                toastr.error('500错误：服务器内部错误，请检查请求格式', '❌ 服务器错误', { timeOut: 8000 });
+            } else if (error.message.includes('401') || error.message.includes('403')) {
+                console.log('💡 认证错误分析:');
+                console.log('1. API密钥无效或过期');
+                console.log('2. API密钥权限不足');
+                console.log('3. 认证头格式错误');
+                console.log('4. API配额已用完');
+                toastr.error('认证失败：请检查API密钥和权限', '❌ 认证错误', { timeOut: 8000 });
+            } else if (error.message.includes('404')) {
+                console.log('💡 404错误分析:');
+                console.log('1. API端点URL错误');
+                console.log('2. 模型名称不存在');
+                console.log('3. API版本路径错误');
+                toastr.error('404错误：请检查API URL和端点', '❌ 端点错误', { timeOut: 8000 });
+            }
+
+            toastr.error(`第三方API测试失败: ${error.message}`, '❌ 测试失败', { timeOut: 10000 });
+            return false;
+        }
+    };
+
+    /**
+     * 调试API调用流程
+     */
+    window.debugAPICall = async function() {
+        console.log('🔍 调试API调用流程...');
+
+        const settings = loadAISettings();
+        console.log('\n📋 API配置检查:');
+        console.log(`API类型: ${settings.apiType || '❌ 未设置'}`);
+        console.log(`API URL: ${settings.apiUrl || '❌ 未设置'}`);
+        console.log(`API密钥: ${settings.apiKey ? '✅ 已设置' : '❌ 未设置'}`);
+        console.log(`API模型: ${settings.apiModel || '❌ 未设置'}`);
+
+        console.log('\n✅ 注意: 插件现在只使用自定义API配置，不再调用SillyTavern API');
+
+        console.log('\n📡 开始调试API调用...');
+        const testPrompt = "测试";
+
+        try {
+            const result = await callAIAPI(testPrompt, 10000);
+            console.log('✅ API调用成功:', result);
+            toastr.success(`API调用成功: ${result}`, '🔍 调试成功');
+        } catch (error) {
+            console.error('❌ API调用失败:', error);
+            toastr.error(`API调用失败: ${error.message}`, '🔍 调试失败', { timeOut: 8000 });
+        }
+    };
+
+    /**
+     * 调试API响应解析
+     */
+    window.debugAPIResponse = function(mockResponse = null) {
+        console.log('🔍 调试API响应解析...');
+
+        const settings = loadAISettings();
+        console.log('📋 当前API配置:', settings);
+
+        // 如果没有提供模拟响应，使用一些常见的响应格式示例
+        const mockResponses = {
+            openai: {
+                choices: [{
+                    message: { content: "这是OpenAI格式的回复" },
+                    text: "这是备用的text字段"
+                }]
+            },
+            claude: {
+                content: [{
+                    text: "这是Claude格式的回复"
+                }]
+            },
+            google: {
+                candidates: [{
+                    content: {
+                        parts: [{
+                            text: "这是Gemini格式的回复"
+                        }]
+                    }
+                }]
+            },
+            generic: {
+                text: "这是通用格式的text字段",
+                response: "这是通用格式的response字段",
+                result: "这是通用格式的result字段"
+            }
+        };
+
+        const testResponse = mockResponse || mockResponses[settings.apiType] || mockResponses.generic;
+        console.log('🧪 测试响应数据:', testResponse);
+
+        // 模拟解析逻辑
+        let result = '';
+        console.log(`🔧 使用API类型: ${settings.apiType}`);
+
+        if (settings.apiType === 'openai' || settings.apiType === 'custom') {
+            result = testResponse.choices?.[0]?.message?.content || testResponse.choices?.[0]?.text || '';
+            console.log('📊 OpenAI解析结果:', {
+                'choices[0].message.content': testResponse.choices?.[0]?.message?.content,
+                'choices[0].text': testResponse.choices?.[0]?.text,
+                'final_result': result
+            });
+        } else if (settings.apiType === 'claude') {
+            result = testResponse.content?.[0]?.text || '';
+            console.log('📊 Claude解析结果:', {
+                'content[0].text': testResponse.content?.[0]?.text,
+                'final_result': result
+            });
+        } else if (settings.apiType === 'google') {
+            result = testResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            console.log('📊 Gemini解析结果:', {
+                'candidates[0].content.parts[0].text': testResponse.candidates?.[0]?.content?.parts?.[0]?.text,
+                'final_result': result
+            });
+
+            if (!result) {
+                result = testResponse.text || testResponse.response || testResponse.result || '';
+                console.log('📊 Gemini备用解析:', {
+                    'text': testResponse.text,
+                    'response': testResponse.response,
+                    'result': testResponse.result,
+                    'backup_result': result
+                });
+            }
+        } else {
+            result = testResponse.text || testResponse.response || testResponse.result || '';
+            console.log('📊 通用解析结果:', {
+                'text': testResponse.text,
+                'response': testResponse.response,
+                'result': testResponse.result,
+                'final_result': result
+            });
+        }
+
+        console.log('✅ 最终解析结果:', {
+            result: result,
+            type: typeof result,
+            length: result ? result.length : 'null/undefined',
+            isEmpty: !result || result.trim() === '',
+            trimmed: result ? result.trim() : 'cannot trim'
+        });
+
+        if (result && result.trim()) {
+            console.log('✅ 解析成功！');
+            toastr.success(`解析成功: ${result}`, '🔍 调试成功');
+        } else {
+            console.log('❌ 解析失败，返回空结果');
+            toastr.error('解析失败，返回空结果', '🔍 调试失败');
+        }
+
+        return result;
+    };
+
+    /**
+     * 快速修复API响应解析问题
+     */
+    window.quickFixAPI = async function() {
+        console.log('🔧 快速修复API响应解析问题...');
+
+        const settings = loadAISettings();
+        if (!settings.apiType || !settings.apiUrl || !settings.apiKey) {
+            console.log('❌ 请先配置API信息');
+            return false;
+        }
+
+        console.log('📡 发送测试请求以获取真实响应结构...');
+
+        try {
+            // 直接调用callCustomAPI来获取真实响应
+            const testPrompt = "测试";
+            await callCustomAPI(testPrompt, settings, 10000);
+        } catch (error) {
+            console.log('📊 从错误中获取响应信息...');
+        }
+
+        console.log('\n💡 基于你的日志，问题是choices[0].message.content为空字符串');
+        console.log('🔍 让我们检查choices[0]的完整结构...');
+
+        // 模拟你的响应数据进行分析
+        const mockResponse = {
+            id: 'chatcmpl-20250708132707348110513aE2tFtcY',
+            model: 'gemini-2.5-pro-preview-06-05',
+            object: 'chat.completion',
+            created: 1751952430,
+            choices: [{
+                // 这里可能有其他字段
+                message: {
+                    content: '', // 这个是空的
+                    // 可能还有其他字段
+                },
+                // 可能还有其他字段
+            }]
+        };
+
+        console.log('🧪 分析可能的响应结构...');
+        console.log('如果choices[0].message.content是空的，可能的原因：');
+        console.log('1. 内容在choices[0].message.text字段');
+        console.log('2. 内容在choices[0].text字段');
+        console.log('3. 内容在choices[0].content字段');
+        console.log('4. 内容在choices[0].delta.content字段');
+        console.log('5. API返回了空内容（可能是模型问题）');
+
+        console.log('\n🔧 建议的修复方案：');
+        console.log('1. 再次运行testThirdPartyAPI()查看详细日志');
+        console.log('2. 检查你的API提供商文档');
+        console.log('3. 尝试不同的模型名称');
+        console.log('4. 检查API配额和权限');
+
+        toastr.info('请查看控制台的详细分析', '🔧 快速修复', { timeOut: 5000 });
+
+        return true;
+    };
+
+    /**
+     * 测试简化的请求格式
+     */
+    window.testSimpleRequest = async function() {
+        console.log('🧪 测试简化的请求格式...');
+
+        const settings = loadAISettings();
+        if (!settings.apiType || !settings.apiUrl || !settings.apiKey) {
+            console.log('❌ 请先配置API信息');
+            return false;
+        }
+
+        console.log('📋 当前配置:', settings);
+
+        // 测试不同的模型名称
+        const testModels = [
+            'gemini-pro',
+            'gpt-3.5-turbo',
+            'gpt-4',
+            settings.apiModel // 原始模型名称
+        ];
+
+        for (const model of testModels) {
+            console.log(`\n🔍 测试模型: ${model}`);
+
+            const testSettings = {
+                ...settings,
+                apiModel: model
+            };
+
+            try {
+                const result = await callCustomAPI("测试", testSettings, 10000);
+                if (result && result.trim()) {
+                    console.log(`✅ 模型 ${model} 测试成功: ${result}`);
+                    toastr.success(`模型 ${model} 可用！`, '🧪 测试成功');
+                    return { success: true, model: model, response: result };
+                } else {
+                    console.log(`❌ 模型 ${model} 返回空内容`);
+                }
+            } catch (error) {
+                console.log(`❌ 模型 ${model} 测试失败: ${error.message}`);
+            }
+        }
+
+        console.log('\n💡 建议:');
+        console.log('1. 尝试使用标准模型名称 (gemini-pro, gpt-3.5-turbo)');
+        console.log('2. 检查API提供商支持的模型列表');
+        console.log('3. 确认模型名称格式是否正确');
+
+        toastr.warning('所有模型测试都失败了', '🧪 测试完成', { timeOut: 5000 });
+        return { success: false };
     };
 
     console.log("🐾 虚拟宠物系统脚本已加载完成");
