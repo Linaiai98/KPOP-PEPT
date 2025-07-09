@@ -340,10 +340,10 @@ jQuery(async () => {
         type: "cat", // cat, dog, dragon, etc.
         level: 1,
         experience: 0,
-        health: 35,      // 拓麻歌子式：合理起始值
-        happiness: 25,   // 拓麻歌子式：合理起始值
-        hunger: 40,      // 拓麻歌子式：合理起始值
-        energy: 50,      // 拓麻歌子式：合理起始值
+        health: 25,      // 更低的起始值：需要照顾才能成长
+        happiness: 20,   // 更低的起始值：需要互动才能快乐
+        hunger: 30,      // 更低的起始值：需要喂食才能饱足
+        energy: 35,      // 更低的起始值：需要休息才能精力充沛
 
         // 拓麻歌子式生命状态
         lifeStage: "baby",    // baby, child, teen, adult, senior
@@ -1610,7 +1610,7 @@ jQuery(async () => {
         // 获取当前人设，确保不包含冲突信息
         const currentPersonality = getCurrentPersonality();
 
-        // 构建完整的Prompt - 优化版本，避免身份混淆
+        // 构建完整的Prompt - 优化版本，避免金币理解错误
         const prompt = `你是${petData.name}，请严格按照以下人设回应用户。
 
 【你的身份设定】：
@@ -1626,6 +1626,8 @@ ${currentPersonality}
 
 【情景】：现在是${timeOfDay}，用户刚刚${actionDescriptions[action]}。
 
+【注意】：不要在回复中提及金币、奖励或任何游戏机制，只需要按照你的人设自然回应即可。
+
 请以${petData.name}的身份，严格按照你的人设回应（不超过30字）：`;
 
         return prompt;
@@ -1635,9 +1637,10 @@ ${currentPersonality}
      * 处理AI回复的通用函数
      * @param {string} action - 行为类型
      * @param {string} fallbackMessage - 回退消息
+     * @param {Object} rewards - 奖励信息 {coins: number, experience: number}
      * @returns {Promise<void>}
      */
-    async function handleAIReply(action, fallbackMessage) {
+    async function handleAIReply(action, fallbackMessage, rewards = null) {
         try {
             if (isAIAPIAvailable()) {
                 // 显示加载状态
@@ -1689,10 +1692,55 @@ ${currentPersonality}
                     extendedTimeOut: 1000
                 });
             }
+
+            // 独立显示奖励信息（如果提供了奖励数据）
+            if (rewards && (rewards.coins > 0 || rewards.experience > 0)) {
+                setTimeout(() => {
+                    showRewardNotification(rewards);
+                }, 1000); // 延迟1秒显示，让AI回复先显示
+            }
+
         } catch (error) {
             console.error(`[${extensionName}] 处理AI回复时发生错误:`, error);
             // 最终回退
             toastr.success(fallbackMessage);
+
+            // 即使出错也显示奖励
+            if (rewards && (rewards.coins > 0 || rewards.experience > 0)) {
+                setTimeout(() => {
+                    showRewardNotification(rewards);
+                }, 500);
+            }
+        }
+    }
+
+    /**
+     * 显示奖励通知
+     * @param {Object} rewards - 奖励信息 {coins: number, experience: number}
+     */
+    function showRewardNotification(rewards) {
+        let rewardText = "🎁 获得奖励：";
+        const rewardParts = [];
+
+        if (rewards.coins > 0) {
+            rewardParts.push(`💰 ${rewards.coins} 金币`);
+        }
+
+        if (rewards.experience > 0) {
+            rewardParts.push(`⭐ ${rewards.experience} 经验`);
+        }
+
+        if (rewardParts.length > 0) {
+            rewardText += rewardParts.join("，");
+
+            // 显示奖励通知
+            toastr.info(rewardText, "", {
+                timeOut: 3000,
+                extendedTimeOut: 1000,
+                positionClass: "toast-bottom-right" // 显示在右下角，避免与AI回复重叠
+            });
+
+            console.log(`🎁 ${rewardText}`);
         }
     }
 
@@ -2033,8 +2081,8 @@ ${currentPersonality}
                         petData = { ...petData, ...savedData };
                     }
 
-                    // 确保平衡性调整已应用
-                    applyBalancedFunctions();
+                    // 确保拓麻歌子系统已应用
+                    applyTamagotchiSystem();
                 }
 
                 // 确保人设数据完整性
@@ -2425,95 +2473,11 @@ ${currentPersonality}
         }
     }
     
-    /**
-     * 喂食宠物
-     */
-    async function feedPet() {
-        const now = Date.now();
-        const timeSinceLastFeed = now - petData.lastFeedTime;
-
-        if (timeSinceLastFeed < 45000) { // 45秒冷却 (20→45秒)
-            toastr.warning("宠物还不饿，等一会再喂吧！");
-            return;
-        }
-
-        // 更新宠物状态 - 使用新的平衡数值
-        petData.hunger = Math.min(100, petData.hunger + 8);      // 15→8
-        petData.happiness = Math.min(100, petData.happiness + 3); // 5→3
-        petData.lastFeedTime = now;
-
-        // 验证数值
-        validateAndFixValues();
-
-        // 获得经验
-        gainExperience(3);
-
-        // 使用AI生成回复
-        await handleAIReply('feed', `${petData.name} 吃得很开心！`);
-
-        savePetData();
-        renderPetStatus();
-    }
+    // 旧版本feedPet函数已删除，使用拓麻歌子版本
     
-    /**
-     * 和宠物玩耍
-     */
-    async function playWithPet() {
-        const now = Date.now();
-        const timeSinceLastPlay = now - petData.lastPlayTime;
-
-        if (timeSinceLastPlay < 60000) { // 60秒冷却 (40→60秒)
-            toastr.warning("宠物需要休息一下！");
-            return;
-        }
-
-        // 更新宠物状态 - 使用新的平衡数值
-        petData.happiness = Math.min(100, petData.happiness + 8);  // 12→8
-        petData.energy = Math.max(0, petData.energy - 10);         // 8→10
-        petData.lastPlayTime = now;
-
-        // 验证数值
-        validateAndFixValues();
-
-        // 获得经验
-        gainExperience(4);
-
-        // 使用AI生成回复
-        await handleAIReply('play', `${petData.name} 玩得很开心！`);
-
-        savePetData();
-        renderPetStatus();
-    }
+    // 旧版本playWithPet函数已删除，使用拓麻歌子版本
     
-    /**
-     * 让宠物休息
-     */
-    async function petSleep() {
-        const now = Date.now();
-        const timeSinceLastSleep = now - petData.lastSleepTime;
-
-        if (timeSinceLastSleep < 80000) { // 80秒冷却
-            toastr.warning("宠物还不困！");
-            return;
-        }
-
-        // 更新宠物状态
-        petData.energy = Math.min(100, petData.energy + 20);
-        petData.health = Math.min(100, petData.health + 5);
-        petData.lastSleepTime = now;
-
-        // 验证数值
-        validateAndFixValues();
-
-        // 获得经验
-        gainExperience(2);
-
-        // 使用AI生成回复
-        await handleAIReply('sleep', `${petData.name} 睡得很香！`);
-
-        savePetData();
-        renderPetStatus();
-    }
+    // 旧版本petSleep函数已删除，使用拓麻歌子版本
     
     /**
      * 获得经验值
@@ -2542,6 +2506,16 @@ ${currentPersonality}
         if (!petData.coins) petData.coins = 100;
         petData.coins += amount;
         console.log(`💰 获得 ${amount} 金币，当前金币: ${petData.coins}`);
+
+        // 立即更新UI显示
+        setTimeout(() => {
+            if (typeof updateUnifiedUIStatus === 'function') {
+                updateUnifiedUIStatus();
+            }
+            if (typeof renderPetStatus === 'function') {
+                renderPetStatus();
+            }
+        }, 50);
     }
 
     /**
@@ -3539,10 +3513,10 @@ ${currentPersonality}
             type: "cat",
             level: 1,
             experience: 0,
-            health: 50,
-            happiness: 50,
-            hunger: 50,
-            energy: 50,
+            health: 25,    // 更低的起始值
+            happiness: 20, // 更低的起始值
+            hunger: 30,    // 更低的起始值
+            energy: 35,    // 更低的起始值
 
             // 拓麻歌子式属性
             lifeStage: "baby",
@@ -4307,11 +4281,14 @@ ${currentPersonality}
         // 4. 加载宠物数据
         loadPetData();
 
-        // 4.1 确保拓麻歌子系统已应用（对于已有的4.0版本数据）
+        // 4.1 确保拓麻歌子系统已应用
         if (petData.dataVersion >= 4.0) {
             applyTamagotchiSystem();
-        } else if (petData.dataVersion >= 3.0) {
-            applyBalancedFunctions();
+        } else {
+            // 旧版本数据自动升级到拓麻歌子系统
+            petData.dataVersion = 4.0;
+            applyTamagotchiSystem();
+            savePetData();
         }
 
         // 5. 加载自定义头像数据
@@ -5912,8 +5889,8 @@ ${currentPersonality}
 
                         petData = mergedData;
 
-                        // 应用平衡函数
-                        applyBalancedFunctions();
+                        // 应用拓麻歌子系统
+                        applyTamagotchiSystem();
 
                         // 保存数据
                         savePetData();
@@ -6591,6 +6568,28 @@ ${currentPersonality}
         console.log('- fixAllIssues() - 修复所有问题');
         console.log('- showPopup() - 显示拓麻歌子UI');
         console.log('- testTamagotchiSystem() - 测试拓麻歌子系统');
+        console.log('- forceApplyTamagotchiSystem() - 强制应用拓麻歌子系统（修复金币问题）');
+        console.log('- testCleanPrompt() - 测试优化后的提示词（避免AI混淆金币）');
+        console.log('- diagnoseRewardSystem() - 诊断金币和经验值问题');
+        console.log('- checkInteractionFunctions() - 检查当前使用的互动函数版本');
+        console.log('- testSimpleInteraction() - 测试简化互动（不包含AI）');
+        console.log('- testInteractionFlow() - 测试完整互动流程（包含AI）');
+        console.log('- traceFeedPetExecution() - 追踪喂食函数的详细执行流程');
+        console.log('- checkUIButtonBinding() - 检查UI按钮事件绑定');
+        console.log('- traceUIFeedPet() - 追踪UI点击时的函数调用');
+        console.log('- restoreOriginalFunctions() - 恢复原始函数（追踪后使用）');
+        console.log('- checkFeedPetVersions() - 检查不同作用域的feedPet函数并修复UI绑定');
+        console.log('- testFixedUIButton() - 测试修复后的UI按钮（包含详细追踪）');
+        console.log('- testUIAfterCooldown() - 等待冷却时间后测试UI按钮');
+        console.log('- inspectUIFeedPet() - 检查UI实际调用的函数并强制修复');
+        console.log('- forceUIRefresh() - 强制刷新UI显示（解决金币显示延迟）');
+        console.log('- forceOverrideOldFunctions() - 强制覆盖旧版本函数（解决金币不增加问题）');
+        console.log('- verifyOldVersionsRemoved() - 验证旧版本函数已删除');
+        console.log('- testRewardDisplay() - 测试新的奖励显示系统');
+        console.log('- adjustDecaySystem() - 调整衰减速度和缓冲机制（解决数值过高问题）');
+        console.log('- testNewDecaySystem() - 测试新的衰减系统效果（预测离线影响）');
+        console.log('- adjustInitialValues() - 调整初始数值到更合理的水平（增加成长感）');
+        console.log('- testNewValueBalance() - 测试新的数值平衡体验（完整的照顾流程）');
 
         // 强制刷新UI
         if (typeof renderPetStatus === 'function') {
@@ -7447,9 +7446,16 @@ ${currentPersonality}
             }
 
             validateAndFixValues();
-            gainExperience(2);
-            gainCoins(3); // 喂食获得3金币
-            await handleAIReply('feed', `${petData.name} 吃得很开心！`);
+
+            // 定义奖励
+            const rewards = { coins: 3, experience: 2 };
+
+            // 应用奖励
+            gainExperience(rewards.experience);
+            gainCoins(rewards.coins);
+
+            // AI回复时传递奖励信息，用于独立显示
+            await handleAIReply('feed', `${petData.name} 吃得很开心！`, rewards);
             savePetData();
             renderPetStatus();
         };
@@ -7479,9 +7485,16 @@ ${currentPersonality}
             petData.careNeglectCount = Math.max(0, petData.careNeglectCount - 1);
 
             validateAndFixValues();
-            gainExperience(3);
-            gainCoins(5); // 玩耍获得5金币
-            await handleAIReply('play', `${petData.name} 玩得很开心！`);
+
+            // 定义奖励
+            const rewards = { coins: 5, experience: 3 };
+
+            // 应用奖励
+            gainExperience(rewards.experience);
+            gainCoins(rewards.coins);
+
+            // AI回复时传递奖励信息，用于独立显示
+            await handleAIReply('play', `${petData.name} 玩得很开心！`, rewards);
             savePetData();
             renderPetStatus();
         };
@@ -7509,9 +7522,16 @@ ${currentPersonality}
             petData.lastCareTime = now;
 
             validateAndFixValues();
-            gainExperience(1);
-            gainCoins(2); // 睡觉获得2金币
-            await handleAIReply('sleep', `${petData.name} 睡得很香！`);
+
+            // 定义奖励
+            const rewards = { coins: 2, experience: 1 };
+
+            // 应用奖励
+            gainExperience(rewards.experience);
+            gainCoins(rewards.coins);
+
+            // AI回复时传递奖励信息，用于独立显示
+            await handleAIReply('sleep', `${petData.name} 睡得很香！`, rewards);
             savePetData();
             renderPetStatus();
         };
@@ -7685,150 +7705,1525 @@ ${currentPersonality}
         }
     }
 
-    // 应用平衡后的函数（保留兼容性）
-    function applyBalancedFunctions() {
-        // 重新定义喂食函数 - 平衡后的版本
-        window.feedPet = async function() {
+    // 平衡版本已删除，只保留拓麻歌子版本
+
+    /**
+     * 强制应用拓麻歌子系统（确保金币功能正常）
+     */
+    window.forceApplyTamagotchiSystem = function() {
+        console.log('🥚 强制应用拓麻歌子系统...');
+
+        // 更新数据版本
+        petData.dataVersion = 4.0;
+
+        // 应用拓麻歌子系统
+        applyTamagotchiSystem();
+
+        // 保存数据
+        savePetData();
+
+        console.log('✅ 拓麻歌子系统已强制应用！');
+        console.log('💰 金币功能现在应该正常工作了');
+
+        toastr.success('拓麻歌子系统已应用！金币功能已启用！', '', { timeOut: 3000 });
+
+        return {
+            applied: true,
+            dataVersion: petData.dataVersion,
+            timestamp: new Date().toISOString()
+        };
+    };
+
+    /**
+     * 测试优化后的提示词（不包含金币信息避免混淆）
+     */
+    window.testCleanPrompt = function(action = 'feed') {
+        console.log('🎯 测试优化后的提示词...');
+
+        console.log(`\n📊 当前状态:`);
+        console.log(`- 宠物名称: ${petData.name}`);
+        console.log(`- 当前金币: ${petData.coins || 100}`);
+        console.log(`- 测试行为: ${action}`);
+
+        const prompt = buildInteractionPrompt(action);
+
+        console.log(`\n📝 生成的提示词:`);
+        console.log(prompt);
+
+        console.log(`\n🔍 提示词分析:`);
+        const includesCoins = prompt.includes('金币');
+        const includesReward = prompt.includes('奖励');
+        const includesGameMechanic = prompt.includes('游戏机制');
+        const hasCleanNote = prompt.includes('不要在回复中提及');
+
+        console.log(`- 包含金币信息: ${includesCoins ? '❌ 是（应该避免）' : '✅ 否'}`);
+        console.log(`- 包含奖励信息: ${includesReward ? '❌ 是（应该避免）' : '✅ 否'}`);
+        console.log(`- 包含游戏机制: ${includesGameMechanic ? '❌ 是（应该避免）' : '✅ 否'}`);
+        console.log(`- 有清晰的注意事项: ${hasCleanNote ? '✅ 是' : '❌ 否'}`);
+
+        if (!includesCoins && !includesReward && hasCleanNote) {
+            console.log('✅ 提示词已优化，AI不会混淆金币概念！');
+            toastr.success('提示词已优化，AI不会混淆金币概念！', '🎯 测试成功');
+        } else {
+            console.log('❌ 提示词仍可能导致AI混淆');
+            toastr.warning('提示词仍可能导致AI混淆', '🎯 测试失败');
+        }
+
+        return {
+            prompt: prompt,
+            analysis: {
+                includesCoins,
+                includesReward,
+                includesGameMechanic,
+                hasCleanNote
+            }
+        };
+    };
+
+    /**
+     * 诊断金币和经验值问题
+     */
+    window.diagnoseRewardSystem = function() {
+        console.log('🔍 诊断金币和经验值系统...');
+
+        console.log('\n📊 当前数据状态:');
+        console.log(`- 数据版本: ${petData.dataVersion}`);
+        console.log(`- 当前金币: ${petData.coins}`);
+        console.log(`- 当前经验: ${petData.experience}`);
+        console.log(`- 当前等级: ${petData.level}`);
+        console.log(`- 宠物存活: ${petData.isAlive}`);
+
+        console.log('\n🔧 函数检查:');
+        console.log(`- gainCoins函数存在: ${typeof gainCoins === 'function'}`);
+        console.log(`- gainExperience函数存在: ${typeof gainExperience === 'function'}`);
+        console.log(`- feedPet函数存在: ${typeof window.feedPet === 'function'}`);
+
+        console.log('\n🧪 测试金币功能:');
+        const oldCoins = petData.coins || 0;
+        console.log(`测试前金币: ${oldCoins}`);
+
+        try {
+            gainCoins(10);
+            console.log(`测试后金币: ${petData.coins}`);
+            console.log(`金币增加: ${(petData.coins || 0) - oldCoins}`);
+
+            if ((petData.coins || 0) - oldCoins === 10) {
+                console.log('✅ gainCoins函数工作正常');
+            } else {
+                console.log('❌ gainCoins函数有问题');
+            }
+        } catch (error) {
+            console.log(`❌ gainCoins函数错误: ${error.message}`);
+        }
+
+        console.log('\n🧪 测试经验功能:');
+        const oldExp = petData.experience || 0;
+        const oldLevel = petData.level || 1;
+        console.log(`测试前经验: ${oldExp}, 等级: ${oldLevel}`);
+
+        try {
+            gainExperience(5);
+            console.log(`测试后经验: ${petData.experience}, 等级: ${petData.level}`);
+            console.log(`经验增加: ${(petData.experience || 0) - oldExp}`);
+
+            if ((petData.experience || 0) >= oldExp) {
+                console.log('✅ gainExperience函数工作正常');
+            } else {
+                console.log('❌ gainExperience函数有问题');
+            }
+        } catch (error) {
+            console.log(`❌ gainExperience函数错误: ${error.message}`);
+        }
+
+        console.log('\n🔍 互动函数检查:');
+        const feedPetString = window.feedPet.toString();
+        const hasGainCoins = feedPetString.includes('gainCoins');
+        const hasGainExp = feedPetString.includes('gainExperience');
+
+        console.log(`- feedPet包含gainCoins调用: ${hasGainCoins ? '✅' : '❌'}`);
+        console.log(`- feedPet包含gainExperience调用: ${hasGainExp ? '✅' : '❌'}`);
+
+        if (!hasGainCoins || !hasGainExp) {
+            console.log('❌ 互动函数缺少奖励调用，需要重新应用拓麻歌子系统');
+            console.log('💡 运行: forceApplyTamagotchiSystem()');
+        }
+
+        return {
+            dataVersion: petData.dataVersion,
+            coins: petData.coins,
+            experience: petData.experience,
+            level: petData.level,
+            isAlive: petData.isAlive,
+            functionsExist: {
+                gainCoins: typeof gainCoins === 'function',
+                gainExperience: typeof gainExperience === 'function',
+                feedPet: typeof window.feedPet === 'function'
+            },
+            feedPetIncludes: {
+                gainCoins: hasGainCoins,
+                gainExperience: hasGainExp
+            }
+        };
+    };
+
+    /**
+     * 检查当前使用的互动函数版本
+     */
+    window.checkInteractionFunctions = function() {
+        console.log('🔍 检查当前使用的互动函数版本...');
+
+        console.log('\n📋 函数源码分析:');
+
+        // 检查feedPet函数
+        const feedPetCode = window.feedPet.toString();
+        console.log('\n🍖 feedPet函数分析:');
+        console.log(`- 包含gainCoins: ${feedPetCode.includes('gainCoins') ? '✅' : '❌'}`);
+        console.log(`- 包含gainExperience: ${feedPetCode.includes('gainExperience') ? '✅' : '❌'}`);
+        console.log(`- 包含handleAIReply: ${feedPetCode.includes('handleAIReply') ? '✅' : '❌'}`);
+        console.log(`- 包含拓麻歌子特征(weight): ${feedPetCode.includes('weight') ? '✅' : '❌'}`);
+        console.log(`- 冷却时间: ${feedPetCode.includes('30000') ? '30秒(拓麻歌子)' : feedPetCode.includes('45000') ? '45秒(平衡版)' : '未知'}`);
+
+        // 检查playWithPet函数
+        const playPetCode = window.playWithPet.toString();
+        console.log('\n🎮 playWithPet函数分析:');
+        console.log(`- 包含gainCoins: ${playPetCode.includes('gainCoins') ? '✅' : '❌'}`);
+        console.log(`- 包含gainExperience: ${playPetCode.includes('gainExperience') ? '✅' : '❌'}`);
+        console.log(`- 包含handleAIReply: ${playPetCode.includes('handleAIReply') ? '✅' : '❌'}`);
+        console.log(`- 冷却时间: ${playPetCode.includes('45000') ? '45秒(拓麻歌子)' : playPetCode.includes('60000') ? '60秒(平衡版)' : '未知'}`);
+
+        // 检查petSleep函数
+        const sleepCode = window.petSleep.toString();
+        console.log('\n😴 petSleep函数分析:');
+        console.log(`- 包含gainCoins: ${sleepCode.includes('gainCoins') ? '✅' : '❌'}`);
+        console.log(`- 包含gainExperience: ${sleepCode.includes('gainExperience') ? '✅' : '❌'}`);
+        console.log(`- 包含handleAIReply: ${sleepCode.includes('handleAIReply') ? '✅' : '❌'}`);
+        console.log(`- 冷却时间: ${sleepCode.includes('120000') ? '120秒(拓麻歌子)' : '未知'}`);
+
+        // 判断版本
+        const isTamagotchi = feedPetCode.includes('gainCoins') && feedPetCode.includes('weight');
+        const isBalanced = feedPetCode.includes('45000') && !feedPetCode.includes('gainCoins');
+        const isOld = !feedPetCode.includes('gainCoins') && !feedPetCode.includes('weight');
+
+        console.log('\n🎯 版本判断:');
+        if (isTamagotchi) {
+            console.log('✅ 当前使用拓麻歌子版本 - 包含完整的金币和经验奖励');
+        } else if (isBalanced) {
+            console.log('⚠️ 当前使用平衡版本 - 缺少金币奖励');
+        } else if (isOld) {
+            console.log('❌ 当前使用旧版本 - 缺少金币奖励');
+        } else {
+            console.log('❓ 无法确定版本');
+        }
+
+        // 提供修复建议
+        if (!isTamagotchi) {
+            console.log('\n💡 修复建议:');
+            console.log('运行以下命令强制应用拓麻歌子系统:');
+            console.log('forceApplyTamagotchiSystem()');
+        }
+
+        return {
+            feedPet: {
+                hasGainCoins: feedPetCode.includes('gainCoins'),
+                hasGainExperience: feedPetCode.includes('gainExperience'),
+                hasWeight: feedPetCode.includes('weight'),
+                cooldown: feedPetCode.includes('30000') ? 30 : feedPetCode.includes('45000') ? 45 : 'unknown'
+            },
+            playWithPet: {
+                hasGainCoins: playPetCode.includes('gainCoins'),
+                hasGainExperience: playPetCode.includes('gainExperience'),
+                cooldown: playPetCode.includes('45000') ? 45 : playPetCode.includes('60000') ? 60 : 'unknown'
+            },
+            petSleep: {
+                hasGainCoins: sleepCode.includes('gainCoins'),
+                hasGainExperience: sleepCode.includes('gainExperience'),
+                cooldown: sleepCode.includes('120000') ? 120 : 'unknown'
+            },
+            version: isTamagotchi ? 'tamagotchi' : isBalanced ? 'balanced' : isOld ? 'old' : 'unknown'
+        };
+    };
+
+    /**
+     * 测试互动流程中的奖励执行顺序
+     */
+    window.testInteractionFlow = async function() {
+        console.log('🧪 测试互动流程中的奖励执行顺序...');
+
+        if (!petData.isAlive) {
+            console.log('❌ 宠物已死亡，无法测试');
+            return;
+        }
+
+        console.log('\n📊 测试前状态:');
+        const beforeCoins = petData.coins || 0;
+        const beforeExp = petData.experience || 0;
+        const beforeLevel = petData.level || 1;
+
+        console.log(`- 金币: ${beforeCoins}`);
+        console.log(`- 经验: ${beforeExp}`);
+        console.log(`- 等级: ${beforeLevel}`);
+
+        console.log('\n🔄 模拟喂食流程...');
+
+        try {
+            // 模拟喂食流程的关键步骤
+            console.log('1. 更新宠物状态...');
+            petData.hunger = Math.min(100, petData.hunger + 20);
+            petData.happiness = Math.min(100, petData.happiness + 5);
+            petData.weight += 1;
+            petData.lastFeedTime = Date.now();
+            petData.lastCareTime = Date.now();
+
+            console.log('2. 验证数值...');
+            validateAndFixValues();
+
+            console.log('3. 获得经验...');
+            gainExperience(2);
+            console.log(`   经验变化: ${beforeExp} → ${petData.experience}`);
+
+            console.log('4. 获得金币...');
+            gainCoins(3);
+            console.log(`   金币变化: ${beforeCoins} → ${petData.coins}`);
+
+            console.log('5. 处理AI回复...');
+            await handleAIReply('feed', `${petData.name} 吃得很开心！`);
+            console.log('   AI回复完成');
+
+            console.log('6. 保存数据...');
+            savePetData();
+            console.log('   数据保存完成');
+
+            console.log('7. 渲染状态...');
+            renderPetStatus();
+            console.log('   状态渲染完成');
+
+        } catch (error) {
+            console.error('❌ 流程执行出错:', error);
+        }
+
+        console.log('\n📊 测试后状态:');
+        console.log(`- 金币: ${petData.coins} (变化: +${(petData.coins || 0) - beforeCoins})`);
+        console.log(`- 经验: ${petData.experience} (变化: +${(petData.experience || 0) - beforeExp})`);
+        console.log(`- 等级: ${petData.level} (变化: +${(petData.level || 1) - beforeLevel})`);
+
+        // 验证结果
+        const coinsGained = (petData.coins || 0) - beforeCoins;
+        const expGained = (petData.experience || 0) - beforeExp;
+
+        console.log('\n🎯 测试结果:');
+        if (coinsGained === 3) {
+            console.log('✅ 金币奖励正常 (+3)');
+        } else {
+            console.log(`❌ 金币奖励异常 (期望+3，实际+${coinsGained})`);
+        }
+
+        if (expGained >= 2) {
+            console.log('✅ 经验奖励正常 (+2或更多)');
+        } else {
+            console.log(`❌ 经验奖励异常 (期望+2，实际+${expGained})`);
+        }
+
+        return {
+            before: { coins: beforeCoins, experience: beforeExp, level: beforeLevel },
+            after: { coins: petData.coins, experience: petData.experience, level: petData.level },
+            changes: { coins: coinsGained, experience: expGained, level: (petData.level || 1) - beforeLevel }
+        };
+    };
+
+    /**
+     * 测试不包含AI回复的简化互动
+     */
+    window.testSimpleInteraction = function() {
+        console.log('🧪 测试简化互动（不包含AI回复）...');
+
+        if (!petData.isAlive) {
+            console.log('❌ 宠物已死亡，无法测试');
+            return;
+        }
+
+        console.log('\n📊 测试前状态:');
+        const beforeCoins = petData.coins || 0;
+        const beforeExp = petData.experience || 0;
+
+        console.log(`- 金币: ${beforeCoins}`);
+        console.log(`- 经验: ${beforeExp}`);
+
+        console.log('\n🔄 执行简化互动...');
+
+        try {
+            console.log('1. 获得经验...');
+            gainExperience(2);
+
+            console.log('2. 获得金币...');
+            gainCoins(3);
+
+            console.log('3. 保存数据...');
+            savePetData();
+
+        } catch (error) {
+            console.error('❌ 执行出错:', error);
+        }
+
+        console.log('\n📊 测试后状态:');
+        const afterCoins = petData.coins || 0;
+        const afterExp = petData.experience || 0;
+
+        console.log(`- 金币: ${afterCoins} (变化: +${afterCoins - beforeCoins})`);
+        console.log(`- 经验: ${afterExp} (变化: +${afterExp - beforeExp})`);
+
+        // 验证结果
+        const coinsGained = afterCoins - beforeCoins;
+        const expGained = afterExp - beforeExp;
+
+        console.log('\n🎯 测试结果:');
+        if (coinsGained === 3) {
+            console.log('✅ 金币功能正常');
+        } else {
+            console.log(`❌ 金币功能异常 (期望+3，实际+${coinsGained})`);
+        }
+
+        if (expGained >= 2) {
+            console.log('✅ 经验功能正常');
+        } else {
+            console.log(`❌ 经验功能异常 (期望+2，实际+${expGained})`);
+        }
+
+        if (coinsGained === 3 && expGained >= 2) {
+            console.log('\n💡 结论: 奖励系统本身正常，问题可能出在AI互动流程中');
+        } else {
+            console.log('\n💡 结论: 奖励系统本身有问题');
+        }
+
+        return {
+            coinsGained,
+            expGained,
+            success: coinsGained === 3 && expGained >= 2
+        };
+    };
+
+    /**
+     * 追踪喂食函数的执行流程
+     */
+    window.traceFeedPetExecution = async function() {
+        console.log('🔍 追踪喂食函数的执行流程...');
+
+        // 获取原始的feedPet函数代码
+        const feedPetCode = window.feedPet.toString();
+        console.log('\n📝 feedPet函数源码片段:');
+        console.log(feedPetCode.substring(0, 500) + '...');
+
+        console.log('\n🚀 开始执行追踪版本的喂食...');
+
+        try {
+            console.log('1. 检查宠物存活状态...');
+            if (!petData.isAlive) {
+                console.log('❌ 宠物已死亡，函数应该在这里返回');
+                return;
+            }
+            console.log('✅ 宠物存活');
+
+            console.log('2. 检查冷却时间...');
             const now = Date.now();
             const timeSinceLastFeed = now - petData.lastFeedTime;
+            console.log(`   距离上次喂食: ${timeSinceLastFeed}ms`);
+            console.log(`   冷却时间要求: 30000ms (30秒)`);
 
-            if (timeSinceLastFeed < 45000) { // 45秒冷却
-                toastr.warning("宠物还不饿，等一会再喂吧！");
+            if (timeSinceLastFeed < 30000) {
+                console.log('❌ 冷却时间未到，函数应该在这里返回');
                 return;
             }
+            console.log('✅ 冷却时间已过');
 
-            // 更新宠物状态 - 平衡后的效果
-            petData.hunger = Math.min(100, petData.hunger + 8);  // 降低效果 15→8
-            petData.happiness = Math.min(100, petData.happiness + 3);  // 降低效果 5→3
+            console.log('3. 更新宠物状态...');
+            const oldHunger = petData.hunger;
+            const oldHappiness = petData.happiness;
+            const oldWeight = petData.weight;
+
+            petData.hunger = Math.min(100, petData.hunger + 20);
+            petData.happiness = Math.min(100, petData.happiness + 5);
+            petData.weight += 1;
             petData.lastFeedTime = now;
+            petData.lastCareTime = now;
+            petData.careNeglectCount = Math.max(0, petData.careNeglectCount - 1);
 
-            validateAndFixValues();
-            gainExperience(3);
-            await handleAIReply('feed', `${petData.name} 吃得很开心！`);
-            savePetData();
-            renderPetStatus();
-        };
+            console.log(`   饱食: ${oldHunger} → ${petData.hunger}`);
+            console.log(`   快乐: ${oldHappiness} → ${petData.happiness}`);
+            console.log(`   体重: ${oldWeight} → ${petData.weight}`);
 
-        // 重新定义玩耍函数 - 平衡后的版本
-        window.playWithPet = async function() {
-            const now = Date.now();
-            const timeSinceLastPlay = now - petData.lastPlayTime;
-
-            if (timeSinceLastPlay < 60000) { // 60秒冷却
-                toastr.warning("宠物需要休息一下！");
-                return;
+            console.log('4. 过度喂食检查...');
+            if (petData.weight > 50) {
+                petData.sickness = Math.min(100, petData.sickness + 10);
+                console.log('⚠️ 触发过度喂食警告');
+            } else {
+                console.log('✅ 体重正常');
             }
 
-            // 更新宠物状态 - 平衡后的效果
-            petData.happiness = Math.min(100, petData.happiness + 8);  // 降低效果 12→8
-            petData.energy = Math.max(0, petData.energy - 10);  // 增加消耗 8→10
-            petData.lastPlayTime = now;
-
+            console.log('5. 验证数值...');
             validateAndFixValues();
-            gainExperience(4);
-            await handleAIReply('play', `${petData.name} 玩得很开心！`);
-            savePetData();
-            renderPetStatus();
-        };
+            console.log('✅ 数值验证完成');
 
-        // 重新定义睡觉函数 - 平衡后的版本
-        window.petSleep = async function() {
-            const now = Date.now();
-            const timeSinceLastSleep = now - petData.lastSleepTime;
-
-            if (timeSinceLastSleep < 120000) { // 120秒冷却
-                toastr.warning("宠物还不困！");
-                return;
-            }
-
-            // 更新宠物状态 - 平衡后的效果
-            petData.energy = Math.min(100, petData.energy + 15);  // 降低效果 20→15
-            petData.health = Math.min(100, petData.health + 3);   // 降低效果 5→3
-            petData.lastSleepTime = now;
-
-            validateAndFixValues();
+            console.log('6. 获得经验...');
+            const oldExp = petData.experience;
+            const oldLevel = petData.level;
             gainExperience(2);
-            await handleAIReply('sleep', `${petData.name} 睡得很香！`);
+            console.log(`   经验: ${oldExp} → ${petData.experience}`);
+            console.log(`   等级: ${oldLevel} → ${petData.level}`);
+
+            console.log('7. 获得金币...');
+            const oldCoins = petData.coins;
+            gainCoins(3);
+            console.log(`   金币: ${oldCoins} → ${petData.coins}`);
+
+            console.log('8. 处理AI回复...');
+            await handleAIReply('feed', `${petData.name} 吃得很开心！`);
+            console.log('✅ AI回复完成');
+
+            console.log('9. 保存数据...');
             savePetData();
+            console.log('✅ 数据保存完成');
+
+            console.log('10. 渲染状态...');
             renderPetStatus();
+            console.log('✅ 状态渲染完成');
+
+            console.log('\n🎉 喂食流程完全执行完毕！');
+
+        } catch (error) {
+            console.error('❌ 执行过程中发生错误:', error);
+            console.error('错误堆栈:', error.stack);
+        }
+    };
+
+    /**
+     * 检查UI按钮事件绑定
+     */
+    window.checkUIButtonBinding = function() {
+        console.log('🔍 检查UI按钮事件绑定...');
+
+        const popup = $("#virtual-pet-popup");
+        if (popup.length === 0) {
+            console.log('❌ 弹窗不存在，请先打开宠物界面');
+            console.log('💡 运行: showPopup()');
+            return false;
+        }
+
+        console.log('✅ 弹窗存在');
+
+        // 检查按钮是否存在
+        const feedBtn = popup.find(".feed-btn");
+        const playBtn = popup.find(".play-btn");
+        const sleepBtn = popup.find(".sleep-btn");
+
+        console.log('\n📋 按钮存在性检查:');
+        console.log(`- 喂食按钮: ${feedBtn.length > 0 ? '✅' : '❌'} (数量: ${feedBtn.length})`);
+        console.log(`- 玩耍按钮: ${playBtn.length > 0 ? '✅' : '❌'} (数量: ${playBtn.length})`);
+        console.log(`- 睡觉按钮: ${sleepBtn.length > 0 ? '✅' : '❌'} (数量: ${sleepBtn.length})`);
+
+        // 检查事件绑定
+        console.log('\n🔗 事件绑定检查:');
+
+        if (feedBtn.length > 0) {
+            const events = $._data(feedBtn[0], 'events');
+            console.log(`- 喂食按钮事件: ${events ? Object.keys(events).join(', ') : '无'}`);
+
+            // 测试点击事件
+            console.log('\n🧪 测试喂食按钮点击...');
+            const oldCoins = petData.coins || 0;
+            const oldExp = petData.experience || 0;
+
+            console.log(`测试前 - 金币: ${oldCoins}, 经验: ${oldExp}`);
+
+            // 模拟点击
+            feedBtn.trigger('click');
+
+            // 等待一下再检查结果
+            setTimeout(() => {
+                console.log(`测试后 - 金币: ${petData.coins}, 经验: ${petData.experience}`);
+
+                const coinsChanged = (petData.coins || 0) !== oldCoins;
+                const expChanged = (petData.experience || 0) !== oldExp;
+
+                if (coinsChanged || expChanged) {
+                    console.log('✅ 按钮点击有效果！');
+                } else {
+                    console.log('❌ 按钮点击无效果');
+                    console.log('💡 可能原因:');
+                    console.log('  1. 冷却时间未到');
+                    console.log('  2. 宠物已死亡');
+                    console.log('  3. 事件绑定失效');
+                    console.log('  4. 函数被覆盖');
+                }
+            }, 1000);
+        }
+
+        // 检查bindUnifiedUIEvents是否被调用
+        console.log('\n🔧 绑定函数检查:');
+        console.log(`- bindUnifiedUIEvents函数存在: ${typeof bindUnifiedUIEvents === 'function'}`);
+
+        return {
+            popupExists: popup.length > 0,
+            buttons: {
+                feed: feedBtn.length,
+                play: playBtn.length,
+                sleep: sleepBtn.length
+            },
+            bindFunctionExists: typeof bindUnifiedUIEvents === 'function'
+        };
+    };
+
+    /**
+     * 在UI点击时追踪feedPet函数执行
+     */
+    window.traceUIFeedPet = function() {
+        console.log('🔍 在UI点击时追踪feedPet函数执行...');
+
+        // 保存原始的gainCoins和gainExperience函数
+        const originalGainCoins = window.gainCoins || gainCoins;
+        const originalGainExperience = window.gainExperience || gainExperience;
+
+        // 创建追踪版本
+        window.gainCoins = function(amount) {
+            console.log(`🔍 [追踪] gainCoins被调用，参数: ${amount}`);
+            console.log(`🔍 [追踪] 调用堆栈:`, new Error().stack);
+            return originalGainCoins.call(this, amount);
         };
 
-        // 重新定义状态更新函数 - 平衡后的版本
+        window.gainExperience = function(exp) {
+            console.log(`🔍 [追踪] gainExperience被调用，参数: ${exp}`);
+            console.log(`🔍 [追踪] 调用堆栈:`, new Error().stack);
+            return originalGainExperience.call(this, exp);
+        };
+
+        console.log('✅ 追踪函数已设置');
+        console.log('💡 现在点击UI中的喂食按钮，观察调用情况');
+        console.log('💡 完成后运行 restoreOriginalFunctions() 恢复原始函数');
+
+        // 保存原始函数以便恢复
+        window._originalGainCoins = originalGainCoins;
+        window._originalGainExperience = originalGainExperience;
+
+        return true;
+    };
+
+    /**
+     * 恢复原始函数
+     */
+    window.restoreOriginalFunctions = function() {
+        console.log('🔄 恢复原始函数...');
+
+        if (window._originalGainCoins) {
+            window.gainCoins = window._originalGainCoins;
+            delete window._originalGainCoins;
+        }
+
+        if (window._originalGainExperience) {
+            window.gainExperience = window._originalGainExperience;
+            delete window._originalGainExperience;
+        }
+
+        console.log('✅ 原始函数已恢复');
+        return true;
+    };
+
+    /**
+     * 检查不同作用域中的feedPet函数
+     */
+    window.checkFeedPetVersions = function() {
+        console.log('🔍 检查不同作用域中的feedPet函数...');
+
+        console.log('\n📋 函数存在性检查:');
+        console.log(`- window.feedPet: ${typeof window.feedPet === 'function'}`);
+        console.log(`- global feedPet: ${typeof feedPet === 'function'}`);
+
+        // 安全检查this.feedPet
+        let thisFeedPetExists = false;
+        try {
+            thisFeedPetExists = typeof this.feedPet === 'function';
+        } catch (e) {
+            thisFeedPetExists = false;
+        }
+        console.log(`- this.feedPet: ${thisFeedPetExists}`);
+
+        // 检查函数内容
+        if (typeof window.feedPet === 'function') {
+            const windowFeedPetCode = window.feedPet.toString();
+            console.log('\n📝 window.feedPet 函数分析:');
+            console.log(`- 包含gainCoins: ${windowFeedPetCode.includes('gainCoins')}`);
+            console.log(`- 包含gainExperience: ${windowFeedPetCode.includes('gainExperience')}`);
+            console.log(`- 包含handleAIReply: ${windowFeedPetCode.includes('handleAIReply')}`);
+            console.log(`- 包含拓麻歌子特征(weight): ${windowFeedPetCode.includes('weight')}`);
+            console.log(`- 函数长度: ${windowFeedPetCode.length} 字符`);
+        }
+
+        if (typeof feedPet === 'function' && feedPet !== window.feedPet) {
+            const globalFeedPetCode = feedPet.toString();
+            console.log('\n📝 global feedPet 函数分析:');
+            console.log(`- 包含gainCoins: ${globalFeedPetCode.includes('gainCoins')}`);
+            console.log(`- 包含gainExperience: ${globalFeedPetCode.includes('gainExperience')}`);
+            console.log(`- 包含handleAIReply: ${globalFeedPetCode.includes('handleAIReply')}`);
+            console.log(`- 包含拓麻歌子特征(weight): ${globalFeedPetCode.includes('weight')}`);
+            console.log(`- 函数长度: ${globalFeedPetCode.length} 字符`);
+        }
+
+        // 强制UI使用window.feedPet
+        console.log('\n🔧 强制修复UI绑定...');
+        const popup = $("#virtual-pet-popup");
+        if (popup.length > 0) {
+            const feedBtn = popup.find(".feed-btn");
+            if (feedBtn.length > 0) {
+                // 移除旧的事件绑定
+                feedBtn.off("click touchend");
+
+                // 重新绑定到window.feedPet
+                feedBtn.on("click touchend", function(e) {
+                    e.preventDefault();
+                    console.log("🍖 喂食宠物 (强制使用window.feedPet)");
+                    if (typeof window.feedPet === 'function') {
+                        window.feedPet();
+                    } else {
+                        console.error('❌ window.feedPet 不存在');
+                    }
+                });
+
+                console.log('✅ UI按钮已重新绑定到window.feedPet');
+            } else {
+                console.log('❌ 找不到喂食按钮');
+            }
+        } else {
+            console.log('❌ 找不到弹窗，请先打开宠物界面');
+        }
+
+        return {
+            windowFeedPet: typeof window.feedPet === 'function',
+            globalFeedPet: typeof feedPet === 'function',
+            areTheSame: window.feedPet === feedPet,
+            uiFixed: popup.length > 0
+        };
+    };
+
+    /**
+     * 测试修复后的UI按钮
+     */
+    window.testFixedUIButton = function() {
+        console.log('🧪 测试修复后的UI按钮...');
+
+        const popup = $("#virtual-pet-popup");
+        if (popup.length === 0) {
+            console.log('❌ 弹窗不存在，请先打开宠物界面');
+            return false;
+        }
+
+        const feedBtn = popup.find(".feed-btn");
+        if (feedBtn.length === 0) {
+            console.log('❌ 找不到喂食按钮');
+            return false;
+        }
+
+        console.log('✅ 找到喂食按钮');
+
+        // 记录测试前状态
+        const beforeCoins = petData.coins || 0;
+        const beforeExp = petData.experience || 0;
+        const beforeLevel = petData.level || 1;
+
+        console.log('\n📊 测试前状态:');
+        console.log(`- 金币: ${beforeCoins}`);
+        console.log(`- 经验: ${beforeExp}`);
+        console.log(`- 等级: ${beforeLevel}`);
+
+        // 设置追踪
+        let gainCoinsWasCalled = false;
+        let gainExpWasCalled = false;
+
+        const originalGainCoins = window.gainCoins || gainCoins;
+        const originalGainExp = window.gainExperience || gainExperience;
+
+        window.gainCoins = function(amount) {
+            console.log(`🔍 [追踪] gainCoins被调用: +${amount}`);
+            gainCoinsWasCalled = true;
+            return originalGainCoins.call(this, amount);
+        };
+
+        window.gainExperience = function(exp) {
+            console.log(`🔍 [追踪] gainExperience被调用: +${exp}`);
+            gainExpWasCalled = true;
+            return originalGainExp.call(this, exp);
+        };
+
+        console.log('\n🖱️ 模拟点击喂食按钮...');
+
+        // 模拟点击
+        feedBtn.trigger('click');
+
+        // 等待一下再检查结果
+        setTimeout(() => {
+            console.log('\n📊 测试后状态:');
+            console.log(`- 金币: ${petData.coins} (变化: +${(petData.coins || 0) - beforeCoins})`);
+            console.log(`- 经验: ${petData.experience} (变化: +${(petData.experience || 0) - beforeExp})`);
+            console.log(`- 等级: ${petData.level} (变化: +${(petData.level || 1) - beforeLevel})`);
+
+            console.log('\n🔍 函数调用追踪:');
+            console.log(`- gainCoins被调用: ${gainCoinsWasCalled ? '✅' : '❌'}`);
+            console.log(`- gainExperience被调用: ${gainExpWasCalled ? '✅' : '❌'}`);
+
+            // 恢复原始函数
+            window.gainCoins = originalGainCoins;
+            window.gainExperience = originalGainExp;
+
+            if (!gainCoinsWasCalled && !gainExpWasCalled) {
+                console.log('\n❌ 问题分析: 奖励函数都没有被调用');
+                console.log('💡 可能原因:');
+                console.log('  1. 冷却时间未到');
+                console.log('  2. 宠物已死亡');
+                console.log('  3. UI绑定仍然有问题');
+                console.log('  4. 函数执行被中断');
+
+                // 检查冷却时间
+                const now = Date.now();
+                const timeSinceLastFeed = now - (petData.lastFeedTime || 0);
+                console.log(`\n⏰ 冷却时间检查:`);
+                console.log(`- 距离上次喂食: ${Math.round(timeSinceLastFeed / 1000)}秒`);
+                console.log(`- 冷却要求: 30秒`);
+                console.log(`- 冷却状态: ${timeSinceLastFeed >= 30000 ? '✅ 已过' : '❌ 未过'}`);
+
+                console.log(`\n💀 宠物状态检查:`);
+                console.log(`- 宠物存活: ${petData.isAlive ? '✅' : '❌'}`);
+            }
+
+        }, 2000); // 等待2秒
+
+        return true;
+    };
+
+    /**
+     * 等待冷却时间后测试UI按钮
+     */
+    window.testUIAfterCooldown = function() {
+        console.log('⏰ 等待冷却时间后测试UI按钮...');
+
+        const now = Date.now();
+        const timeSinceLastFeed = now - (petData.lastFeedTime || 0);
+        const cooldownRemaining = Math.max(0, 30000 - timeSinceLastFeed);
+
+        if (cooldownRemaining > 0) {
+            console.log(`⏰ 还需等待 ${Math.ceil(cooldownRemaining / 1000)} 秒`);
+            console.log('💡 请等待冷却时间结束后再次运行此函数');
+            return false;
+        }
+
+        console.log('✅ 冷却时间已过，开始测试...');
+
+        const popup = $("#virtual-pet-popup");
+        if (popup.length === 0) {
+            console.log('❌ 弹窗不存在，请先打开宠物界面');
+            return false;
+        }
+
+        const feedBtn = popup.find(".feed-btn");
+        if (feedBtn.length === 0) {
+            console.log('❌ 找不到喂食按钮');
+            return false;
+        }
+
+        // 记录测试前状态
+        const beforeCoins = petData.coins || 0;
+        const beforeExp = petData.experience || 0;
+
+        console.log('\n📊 测试前状态:');
+        console.log(`- 金币: ${beforeCoins}`);
+        console.log(`- 经验: ${beforeExp}`);
+
+        // 设置追踪（在点击前设置）
+        let gainCoinsWasCalled = false;
+        let gainExpWasCalled = false;
+        let coinsAmount = 0;
+        let expAmount = 0;
+
+        const originalGainCoins = window.gainCoins || gainCoins;
+        const originalGainExp = window.gainExperience || gainExperience;
+
+        window.gainCoins = function(amount) {
+            console.log(`🔍 [追踪] gainCoins被调用: +${amount}`);
+            gainCoinsWasCalled = true;
+            coinsAmount = amount;
+            return originalGainCoins.call(this, amount);
+        };
+
+        window.gainExperience = function(exp) {
+            console.log(`🔍 [追踪] gainExperience被调用: +${exp}`);
+            gainExpWasCalled = true;
+            expAmount = exp;
+            return originalGainExp.call(this, exp);
+        };
+
+        console.log('\n🖱️ 点击喂食按钮...');
+        feedBtn.trigger('click');
+
+        // 等待一下再检查结果
+        setTimeout(() => {
+            console.log('\n📊 测试后状态:');
+            console.log(`- 金币: ${petData.coins} (变化: +${(petData.coins || 0) - beforeCoins})`);
+            console.log(`- 经验: ${petData.experience} (变化: +${(petData.experience || 0) - beforeExp})`);
+
+            console.log('\n🔍 函数调用追踪:');
+            console.log(`- gainCoins被调用: ${gainCoinsWasCalled ? '✅' : '❌'}`);
+            console.log(`- gainExperience被调用: ${gainExpWasCalled ? '✅' : '❌'}`);
+
+            if (gainCoinsWasCalled) {
+                console.log(`✅ 金币系统正常工作！获得了 ${coinsAmount} 金币`);
+            }
+
+            if (gainExpWasCalled) {
+                console.log(`✅ 经验系统正常工作！获得了 ${expAmount} 经验`);
+            }
+
+            // 恢复原始函数
+            window.gainCoins = originalGainCoins;
+            window.gainExperience = originalGainExp;
+
+        }, 3000); // 等待3秒
+
+        return true;
+    };
+
+    /**
+     * 检查UI实际调用的feedPet函数内容
+     */
+    window.inspectUIFeedPet = function() {
+        console.log('🔍 检查UI实际调用的feedPet函数内容...');
+
+        const popup = $("#virtual-pet-popup");
+        if (popup.length === 0) {
+            console.log('❌ 弹窗不存在，请先打开宠物界面');
+            return false;
+        }
+
+        const feedBtn = popup.find(".feed-btn");
+        if (feedBtn.length === 0) {
+            console.log('❌ 找不到喂食按钮');
+            return false;
+        }
+
+        console.log('✅ 找到喂食按钮');
+
+        // 获取按钮绑定的事件
+        const events = $._data(feedBtn[0], 'events');
+        console.log('\n📋 按钮事件:', events);
+
+        // 检查当前作用域中的feedPet函数
+        console.log('\n📝 函数内容分析:');
+
+        if (typeof window.feedPet === 'function') {
+            const windowFeedPetCode = window.feedPet.toString();
+            console.log('\n🔍 window.feedPet 函数:');
+            console.log(`- 长度: ${windowFeedPetCode.length} 字符`);
+            console.log(`- 包含gainCoins: ${windowFeedPetCode.includes('gainCoins')}`);
+            console.log(`- 包含gainExperience: ${windowFeedPetCode.includes('gainExperience')}`);
+            console.log(`- 包含weight: ${windowFeedPetCode.includes('weight')}`);
+            console.log(`- 包含handleAIReply: ${windowFeedPetCode.includes('handleAIReply')}`);
+
+            // 显示函数的前500个字符
+            console.log('\n📄 函数开头:');
+            console.log(windowFeedPetCode.substring(0, 500) + '...');
+        }
+
+        if (typeof feedPet === 'function' && feedPet !== window.feedPet) {
+            const globalFeedPetCode = feedPet.toString();
+            console.log('\n🔍 global feedPet 函数:');
+            console.log(`- 长度: ${globalFeedPetCode.length} 字符`);
+            console.log(`- 包含gainCoins: ${globalFeedPetCode.includes('gainCoins')}`);
+            console.log(`- 包含gainExperience: ${globalFeedPetCode.includes('gainExperience')}`);
+            console.log(`- 包含weight: ${globalFeedPetCode.includes('weight')}`);
+            console.log(`- 包含handleAIReply: ${globalFeedPetCode.includes('handleAIReply')}`);
+
+            // 显示函数的前500个字符
+            console.log('\n📄 函数开头:');
+            console.log(globalFeedPetCode.substring(0, 500) + '...');
+        }
+
+        // 强制重新绑定到正确的函数
+        console.log('\n🔧 强制重新绑定到拓麻歌子版本...');
+
+        // 移除旧的事件绑定
+        feedBtn.off("click touchend");
+
+        // 重新绑定到确保包含金币奖励的版本
+        feedBtn.on("click touchend", function(e) {
+            e.preventDefault();
+            console.log("🍖 喂食宠物 (强制使用拓麻歌子版本)");
+
+            // 直接调用拓麻歌子版本的逻辑
+            if (typeof window.feedPet === 'function' && window.feedPet.toString().includes('gainCoins')) {
+                window.feedPet();
+            } else {
+                console.error('❌ 找不到包含gainCoins的feedPet版本');
+                // 手动执行拓麻歌子逻辑
+                console.log('🔧 手动执行拓麻歌子喂食逻辑...');
+                manualTamagotchiFeed();
+            }
+        });
+
+        console.log('✅ UI按钮已重新绑定');
+
+        return true;
+    };
+
+    /**
+     * 手动执行拓麻歌子喂食逻辑
+     */
+    function manualTamagotchiFeed() {
+        console.log('🔧 手动执行拓麻歌子喂食逻辑...');
+
+        if (!petData.isAlive) {
+            toastr.error("💀 你的宠物已经死亡，无法喂食...");
+            return;
+        }
+
+        const now = Date.now();
+        const timeSinceLastFeed = now - petData.lastFeedTime;
+
+        if (timeSinceLastFeed < 30000) { // 30秒冷却
+            toastr.warning("宠物还不饿，等一会再喂吧！");
+            return;
+        }
+
+        // 拓麻歌子式喂食效果
+        petData.hunger = Math.min(100, petData.hunger + 20);
+        petData.happiness = Math.min(100, petData.happiness + 5);
+        petData.weight += 1;
+        petData.lastFeedTime = now;
+        petData.lastCareTime = now;
+        petData.careNeglectCount = Math.max(0, petData.careNeglectCount - 1);
+
+        // 过度喂食检查
+        if (petData.weight > 50) {
+            petData.sickness = Math.min(100, petData.sickness + 10);
+            toastr.warning("⚠️ 宠物吃得太多了，可能会生病！");
+        }
+
+        validateAndFixValues();
+
+        // 定义奖励
+        const rewards = { coins: 3, experience: 2 };
+
+        // 确保调用奖励函数
+        console.log('🎁 给予奖励...');
+        gainExperience(rewards.experience);
+        gainCoins(rewards.coins);
+
+        // AI回复时传递奖励信息，用于独立显示
+        handleAIReply('feed', `${petData.name} 吃得很开心！`, rewards);
+
+        savePetData();
+        renderPetStatus();
+
+        // 强制更新UI显示
+        setTimeout(() => {
+            updateUnifiedUIStatus();
+            console.log('🔄 UI状态已强制刷新');
+        }, 100);
+    }
+
+    /**
+     * 强制刷新UI显示
+     */
+    window.forceUIRefresh = function() {
+        console.log('🔄 强制刷新UI显示...');
+
+        try {
+            // 刷新宠物状态显示
+            if (typeof renderPetStatus === 'function') {
+                renderPetStatus();
+                console.log('✅ renderPetStatus 已调用');
+            }
+
+            // 刷新统一UI状态
+            if (typeof updateUnifiedUIStatus === 'function') {
+                updateUnifiedUIStatus();
+                console.log('✅ updateUnifiedUIStatus 已调用');
+            }
+
+            // 强制更新金币显示
+            const popup = $("#virtual-pet-popup");
+            if (popup.length > 0) {
+                const coinsElement = popup.find('.coins-display, .coin-count, [class*="coin"]');
+                if (coinsElement.length > 0) {
+                    coinsElement.text(`💰 ${petData.coins || 100}`);
+                    console.log(`✅ 金币显示已更新: ${petData.coins || 100}`);
+                } else {
+                    console.log('⚠️ 找不到金币显示元素');
+                }
+
+                // 强制更新所有状态显示
+                popup.find('.status-value').each(function() {
+                    const $this = $(this);
+                    const text = $this.text();
+                    if (text.includes('金币') || text.includes('💰')) {
+                        $this.text(`💰 ${petData.coins || 100}`);
+                    }
+                });
+            }
+
+            console.log('🔄 UI刷新完成');
+            return true;
+
+        } catch (error) {
+            console.error('❌ UI刷新失败:', error);
+            return false;
+        }
+    };
+
+    /**
+     * 强制覆盖旧版本函数，确保使用拓麻歌子版本
+     */
+    window.forceOverrideOldFunctions = function() {
+        console.log('🔧 强制覆盖旧版本函数...');
+
+        // 强制应用拓麻歌子系统
+        applyTamagotchiSystem();
+
+        // 确保全局作用域也使用拓麻歌子版本
+        if (typeof window.feedPet === 'function') {
+            // 覆盖全局的feedPet
+            feedPet = window.feedPet;
+            console.log('✅ 已覆盖全局feedPet函数');
+        }
+
+        if (typeof window.playWithPet === 'function') {
+            playWithPet = window.playWithPet;
+            console.log('✅ 已覆盖全局playWithPet函数');
+        }
+
+        if (typeof window.petSleep === 'function') {
+            petSleep = window.petSleep;
+            console.log('✅ 已覆盖全局petSleep函数');
+        }
+
+        // 验证覆盖结果
+        console.log('\n🔍 验证覆盖结果:');
+        const feedPetCode = feedPet.toString();
+        console.log(`- feedPet包含gainCoins: ${feedPetCode.includes('gainCoins') ? '✅' : '❌'}`);
+        console.log(`- feedPet包含gainExperience: ${feedPetCode.includes('gainExperience') ? '✅' : '❌'}`);
+        console.log(`- feedPet冷却时间: ${feedPetCode.includes('30000') ? '30秒(拓麻歌子)' : '45秒(旧版本)'}`);
+
+        // 重新绑定UI事件
+        if (typeof bindUnifiedUIEvents === 'function') {
+            bindUnifiedUIEvents();
+            console.log('✅ UI事件已重新绑定');
+        }
+
+        console.log('🎉 函数覆盖完成！现在应该使用包含金币奖励的版本了');
+
+        return true;
+    };
+
+    /**
+     * 验证旧版本函数已删除
+     */
+    window.verifyOldVersionsRemoved = function() {
+        console.log('🔍 验证旧版本函数已删除...');
+
+        // 检查当前的互动函数
+        console.log('\n📋 当前互动函数检查:');
+
+        if (typeof feedPet === 'function') {
+            const feedPetCode = feedPet.toString();
+            console.log('🍖 feedPet函数:');
+            console.log(`  - 包含gainCoins: ${feedPetCode.includes('gainCoins') ? '✅' : '❌'}`);
+            console.log(`  - 包含gainExperience: ${feedPetCode.includes('gainExperience') ? '✅' : '❌'}`);
+            console.log(`  - 冷却时间: ${feedPetCode.includes('30000') ? '30秒(拓麻歌子)' : feedPetCode.includes('45000') ? '45秒(旧版本)' : '未知'}`);
+        }
+
+        if (typeof playWithPet === 'function') {
+            const playCode = playWithPet.toString();
+            console.log('🎮 playWithPet函数:');
+            console.log(`  - 包含gainCoins: ${playCode.includes('gainCoins') ? '✅' : '❌'}`);
+            console.log(`  - 包含gainExperience: ${playCode.includes('gainExperience') ? '✅' : '❌'}`);
+            console.log(`  - 冷却时间: ${playCode.includes('45000') ? '45秒(拓麻歌子)' : playCode.includes('60000') ? '60秒(旧版本)' : '未知'}`);
+        }
+
+        if (typeof petSleep === 'function') {
+            const sleepCode = petSleep.toString();
+            console.log('😴 petSleep函数:');
+            console.log(`  - 包含gainCoins: ${sleepCode.includes('gainCoins') ? '✅' : '❌'}`);
+            console.log(`  - 包含gainExperience: ${sleepCode.includes('gainExperience') ? '✅' : '❌'}`);
+            console.log(`  - 冷却时间: ${sleepCode.includes('120000') ? '120秒(拓麻歌子)' : sleepCode.includes('80000') ? '80秒(旧版本)' : '未知'}`);
+        }
+
+        // 判断版本状态
+        const feedHasCoins = typeof feedPet === 'function' && feedPet.toString().includes('gainCoins');
+        const playHasCoins = typeof playWithPet === 'function' && playWithPet.toString().includes('gainCoins');
+        const sleepHasCoins = typeof petSleep === 'function' && petSleep.toString().includes('gainCoins');
+
+        console.log('\n🎯 版本状态:');
+        if (feedHasCoins && playHasCoins && sleepHasCoins) {
+            console.log('✅ 所有函数都是拓麻歌子版本，旧版本已成功删除！');
+            console.log('💰 金币系统应该正常工作');
+        } else {
+            console.log('❌ 仍有函数不包含金币奖励');
+            console.log('💡 可能需要运行: forceApplyTamagotchiSystem()');
+        }
+
+        return {
+            feedHasCoins,
+            playHasCoins,
+            sleepHasCoins,
+            allGood: feedHasCoins && playHasCoins && sleepHasCoins
+        };
+    };
+
+    /**
+     * 测试新的奖励显示系统
+     */
+    window.testRewardDisplay = function() {
+        console.log('🎁 测试新的奖励显示系统...');
+
+        // 测试奖励通知显示
+        console.log('1. 测试奖励通知显示...');
+        showRewardNotification({ coins: 5, experience: 3 });
+
+        setTimeout(() => {
+            console.log('2. 测试只有金币的奖励...');
+            showRewardNotification({ coins: 10, experience: 0 });
+        }, 2000);
+
+        setTimeout(() => {
+            console.log('3. 测试只有经验的奖励...');
+            showRewardNotification({ coins: 0, experience: 5 });
+        }, 4000);
+
+        setTimeout(() => {
+            console.log('4. 测试完整的互动流程...');
+            console.log('💡 现在可以点击UI中的喂食按钮测试完整流程');
+            console.log('预期效果：');
+            console.log('  1. AI回复显示在左上角');
+            console.log('  2. 奖励信息显示在右下角');
+            console.log('  3. 两者不会重叠');
+        }, 6000);
+
+        return true;
+    };
+
+    /**
+     * 调整衰减速度和缓冲机制
+     */
+    window.adjustDecaySystem = function() {
+        console.log('⚖️ 调整衰减速度和缓冲机制...');
+
+        // 重新定义更平衡的衰减系统
         window.updatePetStatus = function() {
+            if (!petData.isAlive) return;
+
             const now = Date.now();
             const timeSinceLastUpdate = now - (petData.lastUpdateTime || now);
             const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
 
-            const safeHoursElapsed = Math.min(hoursElapsed, 24);
+            if (hoursElapsed > 0.1) { // 每6分钟更新一次
 
-            // 更频繁的更新，更快的衰减
-            if (safeHoursElapsed > 0.083) { // 每5分钟更新一次
-                petData.hunger = Math.max(0, petData.hunger - safeHoursElapsed * 1.0);  // 调整衰减速度
-                petData.energy = Math.max(0, petData.energy - safeHoursElapsed * 0.8);  // 调整衰减速度
+                // 1. 年龄增长
+                petData.age += hoursElapsed;
 
-                // 饥饿和疲劳影响健康和快乐
-                if (petData.hunger < 20) {
-                    petData.health = Math.max(0, petData.health - safeHoursElapsed * 1);
-                    petData.happiness = Math.max(0, petData.happiness - safeHoursElapsed * 0.8);
+                // 2. 生命阶段检查
+                if (typeof checkLifeStageProgression === 'function') {
+                    checkLifeStageProgression();
                 }
 
-                if (petData.energy < 20) {
-                    petData.happiness = Math.max(0, petData.happiness - safeHoursElapsed * 0.5);
+                // 3. 更真实的衰减速度 - 让时间流逝更有感知
+                petData.hunger = Math.max(0, petData.hunger - hoursElapsed * 3.5);    // 每小时-3.5 (离线8小时下降28点)
+                petData.energy = Math.max(0, petData.energy - hoursElapsed * 3.0);    // 每小时-3.0 (离线8小时下降24点)
+                petData.happiness = Math.max(0, petData.happiness - hoursElapsed * 2.5); // 每小时-2.5 (离线8小时下降20点)
+
+                // 4. 状态不佳时的惩罚性衰减 - 提高门槛和惩罚力度
+                if (petData.hunger < 25) { // 门槛提高到25，给玩家更多反应时间
+                    petData.health = Math.max(0, petData.health - hoursElapsed * 1.5); // 惩罚加大
+                    petData.happiness = Math.max(0, petData.happiness - hoursElapsed * 1.0);
+                }
+
+                if (petData.energy < 25) { // 门槛提高到25
+                    petData.happiness = Math.max(0, petData.happiness - hoursElapsed * 0.8);
+                }
+
+                // 5. 死亡检查
+                if (typeof checkDeathConditions === 'function') {
+                    checkDeathConditions();
                 }
 
                 petData.lastUpdateTime = now;
                 validateAndFixValues();
                 savePetData();
-                checkAndSendNotifications();
             }
+        };
+
+        // 重新定义更宽松的缓冲机制
+        window.applyInitializationBuffer = function() {
+            const now = Date.now();
+            const timeSinceLastUpdate = now - (petData.lastUpdateTime || now);
+            const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
+
+            // 如果距离上次更新超过2小时，给予"急救包"缓冲
+            if (hoursElapsed > 2) {
+                console.log(`检测到长时间未更新 (${hoursElapsed.toFixed(1)}小时)，应用急救缓冲...`);
+
+                // 急救包式的最低数值保证 - 防止宠物死亡但鼓励频繁互动
+                const minValues = {
+                    hunger: 35,    // 最低饱食度35 - 急救水平
+                    energy: 30,    // 最低精力30 - 急救水平
+                    happiness: 25, // 最低快乐度25 - 急救水平
+                    health: 40     // 最低健康度40 - 急救水平
+                };
+
+                let buffered = false;
+                Object.entries(minValues).forEach(([key, minValue]) => {
+                    if (petData[key] < minValue) {
+                        console.log(`缓冲 ${key}: ${petData[key]} → ${minValue}`);
+                        petData[key] = minValue;
+                        buffered = true;
+                    }
+                });
+
+                if (buffered) {
+                    petData.lastUpdateTime = now;
+                    savePetData();
+                    toastr.info('🌟 欢迎回来！已为你的宠物提供了基础照顾。', '', { timeOut: 4000 });
+                    console.log('初始化缓冲已应用');
+                }
+            }
+        };
+
+        console.log('✅ 衰减系统已调整为更真实的养成体验');
+        console.log('📊 新的衰减速度 (更有感知的时间流逝):');
+        console.log('  - 饱食度: 每小时 -3.5 (离线8小时下降28点)');
+        console.log('  - 精力: 每小时 -3.0 (离线8小时下降24点)');
+        console.log('  - 快乐度: 每小时 -2.5 (离线8小时下降20点)');
+        console.log('⚠️ 惩罚性衰减 (状态不佳时):');
+        console.log('  - 饥饿门槛: <25 (原来 <15)');
+        console.log('  - 疲劳门槛: <25 (原来 <15)');
+        console.log('  - 惩罚力度: 显著增加');
+        console.log('🛡️ 急救缓冲机制:');
+        console.log('  - 触发时间: 2小时 (更严格)');
+        console.log('  - 最低饱食度: 35 (急救水平)');
+        console.log('  - 最低精力: 30 (急救水平)');
+        console.log('  - 最低快乐度: 25 (急救水平)');
+        console.log('  - 最低健康度: 40 (急救水平)');
+        console.log('💡 设计理念: 鼓励频繁互动，但提供死亡保护');
+
+        // 立即应用缓冲
+        applyInitializationBuffer();
+
+        return true;
+    };
+
+    /**
+     * 测试新的衰减系统效果
+     */
+    window.testNewDecaySystem = function() {
+        console.log('🧪 测试新的衰减系统效果...');
+
+        // 显示当前状态
+        console.log('\n📊 当前宠物状态:');
+        console.log(`- 饱食度: ${petData.hunger}/100`);
+        console.log(`- 精力: ${petData.energy}/100`);
+        console.log(`- 快乐度: ${petData.happiness}/100`);
+        console.log(`- 健康度: ${petData.health}/100`);
+
+        // 模拟不同时长的离线效果
+        console.log('\n⏰ 模拟离线效果预测:');
+
+        const scenarios = [
+            { hours: 2, desc: '短暂离线 (2小时)' },
+            { hours: 8, desc: '一个工作日 (8小时)' },
+            { hours: 24, desc: '一整天 (24小时)' },
+            { hours: 72, desc: '周末 (72小时)' }
+        ];
+
+        scenarios.forEach(scenario => {
+            const hungerLoss = scenario.hours * 3.5;
+            const energyLoss = scenario.hours * 3.0;
+            const happinessLoss = scenario.hours * 2.5;
+
+            const predictedHunger = Math.max(0, petData.hunger - hungerLoss);
+            const predictedEnergy = Math.max(0, petData.energy - energyLoss);
+            const predictedHappiness = Math.max(0, petData.happiness - happinessLoss);
+
+            console.log(`\n${scenario.desc}:`);
+            console.log(`  饱食度: ${petData.hunger} → ${predictedHunger} (${hungerLoss > 0 ? '-' : ''}${hungerLoss})`);
+            console.log(`  精力: ${petData.energy} → ${predictedEnergy} (${energyLoss > 0 ? '-' : ''}${energyLoss})`);
+            console.log(`  快乐度: ${petData.happiness} → ${predictedHappiness} (${happinessLoss > 0 ? '-' : ''}${happinessLoss})`);
+
+            // 判断是否会触发缓冲
+            if (scenario.hours > 2) {
+                console.log(`  🛡️ 会触发急救缓冲 (最低保证: 饱食35, 精力30, 快乐25)`);
+            }
+        });
+
+        console.log('\n💡 新系统特点:');
+        console.log('✅ 离线时间有明显感知 - 不再是"假装的时间流逝"');
+        console.log('✅ 鼓励频繁互动 - 状态下降更快，需要更多关注');
+        console.log('✅ 死亡保护机制 - 长时间离线不会直接死亡');
+        console.log('✅ 真实的养成体验 - 像真正的宠物一样需要持续照顾');
+
+        return true;
+    };
+
+    /**
+     * 调整初始数值到更合理的水平
+     */
+    window.adjustInitialValues = function() {
+        console.log('⚖️ 调整初始数值到更合理的水平...');
+
+        console.log('\n📊 当前数值:');
+        console.log(`- 健康: ${petData.health}/100`);
+        console.log(`- 快乐: ${petData.happiness}/100`);
+        console.log(`- 饱食: ${petData.hunger}/100`);
+        console.log(`- 精力: ${petData.energy}/100`);
+
+        // 设置更低的初始数值，增加成长感
+        const newValues = {
+            health: 25,    // 从35降到25 - 需要照顾才能健康
+            happiness: 20, // 从25降到20 - 需要互动才能快乐
+            hunger: 30,    // 从40降到30 - 需要喂食才能饱足
+            energy: 35     // 从50降到35 - 需要休息才能精力充沛
+        };
+
+        console.log('\n🎯 新的初始数值:');
+        Object.entries(newValues).forEach(([key, value]) => {
+            const oldValue = petData[key];
+            petData[key] = value;
+            console.log(`- ${key}: ${oldValue} → ${value} (${value - oldValue > 0 ? '+' : ''}${value - oldValue})`);
+        });
+
+        // 重置等级和经验，让玩家从头开始
+        petData.level = 1;
+        petData.experience = 0;
+
+        // 重置时间戳，避免立即衰减
+        const now = Date.now();
+        petData.lastFeedTime = now;
+        petData.lastPlayTime = now;
+        petData.lastSleepTime = now;
+        petData.lastUpdateTime = now;
+        petData.lastCareTime = now;
+
+        // 确保宠物是活着的
+        petData.isAlive = true;
+        petData.deathReason = null;
+
+        // 重置拓麻歌子属性
+        petData.lifeStage = "baby";
+        petData.age = 0;
+        petData.weight = 30;
+        petData.sickness = 0;
+        petData.discipline = 50;
+        petData.careNeglectCount = 0;
+
+        // 保存数据
+        savePetData();
+
+        // 更新UI
+        if (typeof updateUnifiedUIStatus === 'function') {
+            updateUnifiedUIStatus();
+        }
+        if (typeof renderPetStatus === 'function') {
+            renderPetStatus();
+        }
+
+        console.log('\n💡 设计理念:');
+        console.log('✅ 更低的起始数值增加成长感');
+        console.log('✅ 玩家需要通过互动来提升宠物状态');
+        console.log('✅ 每次照顾都有明显的改善效果');
+        console.log('✅ 创造真正的养成体验');
+
+        console.log('\n🎮 建议的游戏流程:');
+        console.log('1. 先喂食提升饱食度 (30→50)');
+        console.log('2. 玩耍提升快乐度 (20→35)');
+        console.log('3. 睡觉恢复精力 (35→60)');
+        console.log('4. 持续照顾提升健康度 (25→45+)');
+
+        toastr.success('🎯 初始数值已调整！现在需要更多照顾才能让宠物茁壮成长！', '', { timeOut: 5000 });
+
+        return {
+            oldValues: {
+                health: 35, happiness: 25, hunger: 40, energy: 50
+            },
+            newValues: newValues,
+            improvement: '降低了起始数值，增加成长感和照顾的必要性'
         };
     };
 
-    // 手动应用平衡性调整（用户可调用，主要用于测试）
-    window.applyBalanceAdjustments = function() {
-        console.log('🎯 手动应用数值平衡性调整...');
+    /**
+     * 测试新的数值平衡体验
+     */
+    window.testNewValueBalance = function() {
+        console.log('🎮 测试新的数值平衡体验...');
 
-        console.log('\n📝 调整方案:');
-        console.log('1. 降低互动效果:');
-        console.log('   - 喂食: 饱食+15→+8, 快乐+5→+3');
-        console.log('   - 玩耍: 快乐+12→+8, 精力-8→-10');
-        console.log('   - 睡觉: 精力+20→+15, 健康+5→+3');
-        console.log('2. 加快衰减速度:');
-        console.log('   - 饱食衰减: 0.8→1.5/小时');
-        console.log('   - 精力衰减: 0.6→1.2/小时');
-        console.log('   - 更新频率: 12分钟→5分钟');
-        console.log('3. 延长冷却时间:');
-        console.log('   - 喂食: 20秒→45秒');
-        console.log('   - 玩耍: 40秒→60秒');
-        console.log('   - 睡觉: 80秒→120秒');
+        // 先应用新的初始数值
+        adjustInitialValues();
 
-        if (!confirm('确定要手动应用这些平衡性调整吗？注意：系统会在数据迁移时自动应用。')) {
-            return;
+        console.log('\n📊 起始状态:');
+        console.log(`- 健康: ${petData.health}/100 (${petData.health < 30 ? '需要照顾' : '良好'})`);
+        console.log(`- 快乐: ${petData.happiness}/100 (${petData.happiness < 30 ? '需要互动' : '良好'})`);
+        console.log(`- 饱食: ${petData.hunger}/100 (${petData.hunger < 40 ? '需要喂食' : '良好'})`);
+        console.log(`- 精力: ${petData.energy}/100 (${petData.energy < 40 ? '需要休息' : '良好'})`);
+
+        console.log('\n🎯 模拟照顾流程:');
+
+        // 模拟喂食
+        console.log('\n1. 🍖 喂食效果:');
+        const oldHunger = petData.hunger;
+        const oldHappiness1 = petData.happiness;
+        petData.hunger = Math.min(100, petData.hunger + 20);
+        petData.happiness = Math.min(100, petData.happiness + 5);
+        console.log(`   饱食度: ${oldHunger} → ${petData.hunger} (+${petData.hunger - oldHunger})`);
+        console.log(`   快乐度: ${oldHappiness1} → ${petData.happiness} (+${petData.happiness - oldHappiness1})`);
+        console.log(`   效果: ${petData.hunger >= 50 ? '✅ 饱足了' : '⚠️ 还需要更多食物'}`);
+
+        // 模拟玩耍
+        console.log('\n2. 🎮 玩耍效果:');
+        const oldHappiness2 = petData.happiness;
+        const oldEnergy = petData.energy;
+        petData.happiness = Math.min(100, petData.happiness + 15);
+        petData.energy = Math.max(0, petData.energy - 10);
+        console.log(`   快乐度: ${oldHappiness2} → ${petData.happiness} (+${petData.happiness - oldHappiness2})`);
+        console.log(`   精力: ${oldEnergy} → ${petData.energy} (${petData.energy - oldEnergy})`);
+        console.log(`   效果: ${petData.happiness >= 50 ? '✅ 很开心' : '⚠️ 还需要更多互动'}`);
+
+        // 模拟睡觉
+        console.log('\n3. 😴 睡觉效果:');
+        const oldEnergy2 = petData.energy;
+        const oldHealth = petData.health;
+        petData.energy = Math.min(100, petData.energy + 25);
+        petData.health = Math.min(100, petData.health + 10);
+        console.log(`   精力: ${oldEnergy2} → ${petData.energy} (+${petData.energy - oldEnergy2})`);
+        console.log(`   健康: ${oldHealth} → ${petData.health} (+${petData.health - oldHealth})`);
+        console.log(`   效果: ${petData.energy >= 60 ? '✅ 精力充沛' : '⚠️ 还需要更多休息'}`);
+
+        console.log('\n📈 照顾后状态:');
+        console.log(`- 健康: ${petData.health}/100 (${petData.health >= 50 ? '✅ 健康' : '⚠️ 需要更多照顾'})`);
+        console.log(`- 快乐: ${petData.happiness}/100 (${petData.happiness >= 50 ? '✅ 快乐' : '⚠️ 需要更多互动'})`);
+        console.log(`- 饱食: ${petData.hunger}/100 (${petData.hunger >= 50 ? '✅ 饱足' : '⚠️ 需要更多食物'})`);
+        console.log(`- 精力: ${petData.energy}/100 (${petData.energy >= 60 ? '✅ 充沛' : '⚠️ 需要更多休息'})`);
+
+        console.log('\n💡 新数值平衡的优势:');
+        console.log('✅ 每次互动都有明显的改善效果');
+        console.log('✅ 玩家能清楚感受到照顾的价值');
+        console.log('✅ 从低数值到高数值有明显的成长感');
+        console.log('✅ 鼓励玩家进行多种类型的互动');
+
+        // 保存测试后的状态
+        savePetData();
+        if (typeof updateUnifiedUIStatus === 'function') {
+            updateUnifiedUIStatus();
         }
 
-        // 应用平衡函数
-        applyBalancedFunctions();
-
-        // 更新数据版本
-        petData.dataVersion = 3.0;
-        savePetData();
-
-        console.log('✅ 平衡性调整已手动应用！');
-        toastr.success('数值平衡已调整！现在数值增长会更慢，衰减会更快。');
-
-        // 立即更新一次状态
-        updatePetStatus();
-        renderPetStatus();
-
         return {
-            applied: true,
-            timestamp: new Date().toISOString(),
-            changes: {
-                feedEffect: { hunger: '15→8', happiness: '5→3', cooldown: '20s→45s' },
-                playEffect: { happiness: '12→8', energy: '-8→-10', cooldown: '40s→60s' },
-                sleepEffect: { energy: '20→15', health: '5→3', cooldown: '80s→120s' },
-                decay: { hunger: '0.8→1.5/h', energy: '0.6→1.2/h', frequency: '12min→5min' }
-            }
+            startValues: { health: 25, happiness: 20, hunger: 30, energy: 35 },
+            endValues: {
+                health: petData.health,
+                happiness: petData.happiness,
+                hunger: petData.hunger,
+                energy: petData.energy
+            },
+            improvement: '显著的成长感和照顾价值'
         };
     };
 
@@ -10917,6 +12312,5 @@ ${currentPersonality}
         toastr.warning('所有模型测试都失败了', '🧪 测试完成', { timeOut: 5000 });
         return { success: false };
     };
-
     console.log("🐾 虚拟宠物系统脚本已加载完成");
 });
