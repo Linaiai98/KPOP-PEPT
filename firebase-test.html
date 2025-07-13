@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase 云端备份测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        h2 {
+            color: #4285f4;
+            border-bottom: 2px solid #4285f4;
+            padding-bottom: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .status {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-weight: 500;
+        }
+        
+        .status.disconnected {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            color: #6c757d;
+        }
+        
+        .status.connecting {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        
+        .status.connected {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 5px;
+            transition: all 0.2s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .btn-primary {
+            background: #4285f4;
+            color: white;
+        }
+        
+        .btn-success {
+            background: #34a853;
+            color: white;
+        }
+        
+        .btn-warning {
+            background: #fbbc04;
+            color: #212529;
+        }
+        
+        .btn-danger {
+            background: #ea4335;
+            color: white;
+        }
+        
+        .input-group {
+            margin-bottom: 16px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #4285f4;
+            box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+        }
+        
+        .code-display {
+            background: #f8fff9;
+            border: 2px solid #28a745;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+            margin: 16px 0;
+            display: none;
+        }
+        
+        .code-text {
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            font-weight: bold;
+            color: #28a745;
+            letter-spacing: 4px;
+            margin-bottom: 8px;
+        }
+        
+        .code-expiry {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        
+        .sync-details {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 16px;
+            display: none;
+        }
+        
+        .sync-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            padding: 4px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .sync-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding: 16px;
+            }
+            
+            .btn {
+                width: 100%;
+                margin: 5px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>🔥 Firebase 云端备份测试</h1>
+    
+    <div class="container">
+        <h2>📊 连接状态</h2>
+        <div id="firebase-status" class="status disconnected">
+            <span id="status-icon">⚪</span>
+            <span id="status-text">未连接</span>
+        </div>
+        <div id="user-info" style="display: none;">
+            <p><strong>用户ID:</strong> <span id="user-id">-</span></p>
+            <p><strong>设备:</strong> <span id="device-name">-</span></p>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>🔗 主设备操作</h2>
+        <p>在主设备上初始化云端备份并生成连接码</p>
+        
+        <button id="init-firebase" class="btn btn-primary">🔥 初始化 Firebase</button>
+        <button id="generate-code" class="btn btn-success" disabled>🔑 生成连接码</button>
+        <button id="backup-data" class="btn btn-warning" disabled>☁️ 备份数据</button>
+        
+        <div id="connection-code-display" class="code-display">
+            <div class="code-text" id="connection-code">------</div>
+            <div class="code-expiry">连接码有效期：5分钟</div>
+            <button id="copy-code" class="btn btn-primary">📋 复制连接码</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>📱 从设备操作</h2>
+        <p>输入主设备生成的连接码来同步数据</p>
+        
+        <div class="input-group">
+            <label for="code-input">连接码 (6位)</label>
+            <input type="text" id="code-input" placeholder="输入连接码" maxlength="6" style="text-transform: uppercase; text-align: center; letter-spacing: 2px;">
+        </div>
+        
+        <button id="connect-device" class="btn btn-primary">🔗 连接同步</button>
+        <button id="restore-data" class="btn btn-success" disabled>📥 恢复数据</button>
+    </div>
+    
+    <div class="container">
+        <h2>📊 数据管理</h2>
+        
+        <button id="check-status" class="btn btn-primary">🔍 检查同步状态</button>
+        <button id="disconnect" class="btn btn-danger" disabled>🔌 断开连接</button>
+        
+        <div id="sync-details" class="sync-details">
+            <div class="sync-item">
+                <span><strong>📱 宠物数据:</strong></span>
+                <span id="sync-pet">-</span>
+            </div>
+            <div class="sync-item">
+                <span><strong>🤖 AI设置:</strong></span>
+                <span id="sync-ai">-</span>
+            </div>
+            <div class="sync-item">
+                <span><strong>🎨 头像:</strong></span>
+                <span id="sync-avatar">-</span>
+            </div>
+            <div class="sync-item">
+                <span><strong>⏰ 最后同步:</strong></span>
+                <span id="sync-time">-</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>📝 操作日志</h2>
+        <div id="log" class="log">等待操作...</div>
+        <button id="clear-log" class="btn btn-warning">🧹 清空日志</button>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics-compat.js"></script>
+
+    <script>
+        // Firebase 配置
+        const firebaseConfig = {
+            apiKey: "AIzaSyA74TnN9IoyQjCncKOIOShWEktrL1hd96o",
+            authDomain: "kpop-pett.firebaseapp.com",
+            projectId: "kpop-pett",
+            storageBucket: "kpop-pett.firebasestorage.app",
+            messagingSenderId: "264650615774",
+            appId: "1:264650615774:web:f500ff555183110c3f0b4f",
+            measurementId: "G-3BH0GMJR3D"
+        };
+
+        // 全局变量
+        let app = null;
+        let auth = null;
+        let db = null;
+        let storage = null;
+        let currentUser = null;
+        let connectionCode = null;
+
+        // 日志函数
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.textContent += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(message);
+        }
+
+        // 更新状态显示
+        function updateStatus(status, message) {
+            const statusElement = document.getElementById('firebase-status');
+            const iconElement = document.getElementById('status-icon');
+            const textElement = document.getElementById('status-text');
+            const userInfo = document.getElementById('user-info');
+
+            // 移除所有状态类
+            statusElement.className = 'status';
+            
+            switch (status) {
+                case 'connected':
+                    statusElement.classList.add('connected');
+                    iconElement.textContent = '🟢';
+                    textElement.textContent = message || '已连接';
+                    if (currentUser) {
+                        document.getElementById('user-id').textContent = currentUser.uid.substring(0, 8) + '...';
+                        document.getElementById('device-name').textContent = getDeviceName();
+                        userInfo.style.display = 'block';
+                    }
+                    // 启用按钮
+                    document.getElementById('generate-code').disabled = false;
+                    document.getElementById('backup-data').disabled = false;
+                    document.getElementById('restore-data').disabled = false;
+                    document.getElementById('disconnect').disabled = false;
+                    break;
+                    
+                case 'connecting':
+                    statusElement.classList.add('connecting');
+                    iconElement.textContent = '🟡';
+                    textElement.textContent = message || '连接中...';
+                    userInfo.style.display = 'none';
+                    break;
+                    
+                case 'error':
+                    statusElement.classList.add('error');
+                    iconElement.textContent = '🔴';
+                    textElement.textContent = message || '连接错误';
+                    userInfo.style.display = 'none';
+                    break;
+                    
+                default: // disconnected
+                    statusElement.classList.add('disconnected');
+                    iconElement.textContent = '⚪';
+                    textElement.textContent = message || '未连接';
+                    userInfo.style.display = 'none';
+                    // 禁用按钮
+                    document.getElementById('generate-code').disabled = true;
+                    document.getElementById('backup-data').disabled = true;
+                    document.getElementById('restore-data').disabled = true;
+                    document.getElementById('disconnect').disabled = true;
+                    break;
+            }
+        }
+
+        // 获取设备名称
+        function getDeviceName() {
+            const userAgent = navigator.userAgent;
+            if (/iPad|iPhone|iPod/.test(userAgent)) {
+                return 'iOS设备';
+            } else if (/Android/.test(userAgent)) {
+                return 'Android设备';
+            } else if (/Windows/.test(userAgent)) {
+                return 'Windows电脑';
+            } else if (/Mac/.test(userAgent)) {
+                return 'Mac电脑';
+            } else {
+                return '未知设备';
+            }
+        }
+
+        // Firebase 初始化
+        async function initializeFirebase() {
+            try {
+                log('🔥 开始初始化 Firebase...');
+                updateStatus('connecting', '初始化中...');
+
+                // 初始化 Firebase 应用
+                app = firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth();
+                db = firebase.firestore();
+                storage = firebase.storage();
+
+                // 初始化 Analytics (可选)
+                try {
+                    if (firebase.analytics && firebaseConfig.measurementId) {
+                        firebase.analytics();
+                        log('📊 Firebase Analytics已启用');
+                    }
+                } catch (analyticsError) {
+                    log(`⚠️ Firebase Analytics初始化失败: ${analyticsError.message}`);
+                }
+
+                log('✅ Firebase 应用初始化成功');
+
+                // 设置认证状态监听器
+                auth.onAuthStateChanged((user) => {
+                    currentUser = user;
+                    if (user) {
+                        log(`👤 用户已登录: ${user.uid}`);
+                        updateStatus('connected', '已连接');
+                    } else {
+                        log('👤 用户未登录');
+                        updateStatus('disconnected', '未登录');
+                    }
+                });
+
+                // 匿名登录
+                log('🔐 执行匿名登录...');
+                const userCredential = await auth.signInAnonymously();
+                currentUser = userCredential.user;
+
+                log(`✅ 匿名登录成功: ${currentUser.uid}`);
+
+                // 创建用户配置文档
+                await createUserProfile();
+
+                updateStatus('connected', '已连接');
+                return true;
+
+            } catch (error) {
+                log(`❌ Firebase 初始化失败: ${error.message}`);
+                updateStatus('error', `初始化失败: ${error.message}`);
+                throw error;
+            }
+        }
+
+        // 创建用户配置文档
+        async function createUserProfile() {
+            try {
+                if (!currentUser) return;
+
+                const userDoc = db.collection('users').doc(currentUser.uid);
+                const docSnapshot = await userDoc.get();
+
+                if (!docSnapshot.exists) {
+                    const userProfile = {
+                        uid: currentUser.uid,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        deviceName: getDeviceName(),
+                        lastActive: firebase.firestore.FieldValue.serverTimestamp(),
+                        dataVersion: '1.0'
+                    };
+
+                    await userDoc.set(userProfile);
+                    log('👤 用户配置文档已创建');
+                } else {
+                    // 更新最后活跃时间
+                    await userDoc.update({
+                        lastActive: firebase.firestore.FieldValue.serverTimestamp(),
+                        deviceName: getDeviceName()
+                    });
+                    log('👤 用户配置文档已更新');
+                }
+            } catch (error) {
+                log(`❌ 创建用户配置失败: ${error.message}`);
+            }
+        }
+
+        // 生成连接码
+        async function generateConnectionCode() {
+            try {
+                if (!currentUser) {
+                    throw new Error('用户未登录');
+                }
+
+                log('🔑 生成连接码...');
+
+                // 生成6位随机连接码
+                const code = generateRandomCode();
+                const expiry = Date.now() + (5 * 60 * 1000); // 5分钟后过期
+
+                // 保存连接码到Firestore
+                const codeDoc = db.collection('connectionCodes').doc(code);
+                await codeDoc.set({
+                    userId: currentUser.uid,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    expiresAt: new Date(expiry),
+                    used: false
+                });
+
+                connectionCode = code;
+
+                log(`✅ 连接码生成成功: ${code}`);
+
+                // 显示连接码
+                document.getElementById('connection-code').textContent = code;
+                document.getElementById('connection-code-display').style.display = 'block';
+
+                // 5分钟后自动清理过期连接码
+                setTimeout(() => {
+                    cleanupExpiredCode(code);
+                }, 5 * 60 * 1000);
+
+                return code;
+            } catch (error) {
+                log(`❌ 生成连接码失败: ${error.message}`);
+                throw error;
+            }
+        }
+
+        // 生成随机连接码
+        function generateRandomCode() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let result = '';
+            for (let i = 0; i < 6; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        }
+
+        // 清理过期连接码
+        async function cleanupExpiredCode(code) {
+            try {
+                const codeDoc = db.collection('connectionCodes').doc(code);
+                await codeDoc.delete();
+                log(`🧹 已清理过期连接码: ${code}`);
+            } catch (error) {
+                log(`❌ 清理连接码失败: ${error.message}`);
+            }
+        }
+
+        // 初始化页面
+        document.addEventListener('DOMContentLoaded', function() {
+            log('页面加载完成，Firebase测试工具已准备就绪');
+            updateStatus('disconnected');
+
+            // 绑定事件
+            bindEvents();
+        });
+
+        // 绑定事件
+        function bindEvents() {
+            // 初始化Firebase按钮
+            document.getElementById('init-firebase').addEventListener('click', async function() {
+                const button = this;
+                const originalText = button.textContent;
+
+                try {
+                    button.disabled = true;
+                    button.textContent = '🔄 初始化中...';
+
+                    await initializeFirebase();
+
+                    button.textContent = '✅ 初始化完成';
+                    button.className = 'btn btn-success';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-primary';
+                        button.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    button.textContent = '❌ 初始化失败';
+                    button.className = 'btn btn-danger';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-primary';
+                        button.disabled = false;
+                    }, 3000);
+                }
+            });
+
+            // 生成连接码按钮
+            document.getElementById('generate-code').addEventListener('click', async function() {
+                const button = this;
+                const originalText = button.textContent;
+
+                try {
+                    button.disabled = true;
+                    button.textContent = '🔄 生成中...';
+
+                    await generateConnectionCode();
+
+                    button.textContent = '✅ 已生成';
+                    button.className = 'btn btn-success';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-success';
+                        button.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    button.textContent = '❌ 生成失败';
+                    button.className = 'btn btn-danger';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-success';
+                        button.disabled = false;
+                    }, 3000);
+                }
+            });
+
+            // 复制连接码按钮
+            document.getElementById('copy-code').addEventListener('click', function() {
+                const codeText = document.getElementById('connection-code').textContent;
+
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(codeText).then(() => {
+                        log('📋 连接码已复制到剪贴板');
+
+                        const button = this;
+                        const originalText = button.textContent;
+                        button.textContent = '✅ 已复制';
+                        setTimeout(() => {
+                            button.textContent = originalText;
+                        }, 2000);
+                    }).catch(() => {
+                        log('❌ 复制失败，请手动复制');
+                    });
+                } else {
+                    // 降级方案
+                    const textArea = document.createElement('textarea');
+                    textArea.value = codeText;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    try {
+                        document.execCommand('copy');
+                        log('📋 连接码已复制到剪贴板');
+                    } catch (err) {
+                        log('❌ 复制失败，请手动复制');
+                    }
+                    document.body.removeChild(textArea);
+                }
+            });
+
+            // 连接码输入框格式化
+            document.getElementById('code-input').addEventListener('input', function() {
+                let value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                if (value.length > 6) {
+                    value = value.substring(0, 6);
+                }
+                this.value = value;
+            });
+
+            // 连接码输入框回车键
+            document.getElementById('code-input').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    document.getElementById('connect-device').click();
+                }
+            });
+
+            // 清空日志按钮
+            document.getElementById('clear-log').addEventListener('click', function() {
+                document.getElementById('log').textContent = '';
+                log('日志已清空');
+            });
+
+            // 连接设备按钮
+            document.getElementById('connect-device').addEventListener('click', async function() {
+                const button = this;
+                const originalText = button.textContent;
+                const codeInput = document.getElementById('code-input');
+                const code = codeInput.value.trim().toUpperCase();
+
+                if (!code || code.length !== 6) {
+                    log('⚠️ 请输入6位连接码');
+                    codeInput.focus();
+                    return;
+                }
+
+                try {
+                    button.disabled = true;
+                    button.textContent = '🔄 连接中...';
+                    codeInput.disabled = true;
+
+                    // 如果还没初始化Firebase，先初始化
+                    if (!app) {
+                        await initializeFirebase();
+                    }
+
+                    await connectWithCode(code);
+
+                    button.textContent = '✅ 连接成功';
+                    button.className = 'btn btn-success';
+                    codeInput.value = '';
+                    codeInput.disabled = false;
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-primary';
+                        button.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    button.textContent = '❌ 连接失败';
+                    button.className = 'btn btn-danger';
+                    codeInput.disabled = false;
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-primary';
+                        button.disabled = false;
+                    }, 3000);
+                }
+            });
+
+            // 备份数据按钮
+            document.getElementById('backup-data').addEventListener('click', async function() {
+                const button = this;
+                const originalText = button.textContent;
+
+                try {
+                    button.disabled = true;
+                    button.textContent = '☁️ 备份中...';
+
+                    await backupTestData();
+
+                    button.textContent = '✅ 备份完成';
+                    button.className = 'btn btn-success';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-warning';
+                        button.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    button.textContent = '❌ 备份失败';
+                    button.className = 'btn btn-danger';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-warning';
+                        button.disabled = false;
+                    }, 3000);
+                }
+            });
+
+            // 恢复数据按钮
+            document.getElementById('restore-data').addEventListener('click', async function() {
+                const button = this;
+                const originalText = button.textContent;
+
+                if (!confirm('确定要从云端恢复数据吗？\n\n这将覆盖当前的所有本地数据！')) {
+                    return;
+                }
+
+                try {
+                    button.disabled = true;
+                    button.textContent = '📥 恢复中...';
+
+                    await restoreTestData();
+
+                    button.textContent = '✅ 恢复完成';
+                    button.className = 'btn btn-success';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-success';
+                        button.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    button.textContent = '❌ 恢复失败';
+                    button.className = 'btn btn-danger';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-success';
+                        button.disabled = false;
+                    }, 3000);
+                }
+            });
+
+            // 检查状态按钮
+            document.getElementById('check-status').addEventListener('click', async function() {
+                const button = this;
+                const originalText = button.textContent;
+
+                try {
+                    button.disabled = true;
+                    button.textContent = '🔍 检查中...';
+
+                    const status = await checkSyncStatus();
+
+                    // 更新同步详情显示
+                    document.getElementById('sync-pet').textContent = status.hasPetData ? '✅ 已同步' : '❌ 未同步';
+                    document.getElementById('sync-ai').textContent = status.hasAISettings ? '✅ 已同步' : '❌ 未同步';
+                    document.getElementById('sync-avatar').textContent = status.hasAvatar ? '✅ 已同步' : '❌ 未同步';
+                    document.getElementById('sync-time').textContent = status.lastBackup ? status.lastBackup.toLocaleString() : '从未备份';
+
+                    document.getElementById('sync-details').style.display = 'block';
+
+                    button.textContent = '✅ 检查完成';
+                    button.className = 'btn btn-success';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-primary';
+                        button.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    button.textContent = '❌ 检查失败';
+                    button.className = 'btn btn-danger';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-primary';
+                        button.disabled = false;
+                    }, 3000);
+                }
+            });
+
+            // 断开连接按钮
+            document.getElementById('disconnect').addEventListener('click', async function() {
+                const button = this;
+                const originalText = button.textContent;
+
+                if (!confirm('确定要断开云端连接吗？\n\n断开后将无法同步数据，但本地数据会保留。')) {
+                    return;
+                }
+
+                try {
+                    button.disabled = true;
+                    button.textContent = '🔌 断开中...';
+
+                    await disconnectFirebase();
+
+                    // 隐藏相关UI
+                    document.getElementById('connection-code-display').style.display = 'none';
+                    document.getElementById('sync-details').style.display = 'none';
+
+                    button.textContent = '✅ 已断开';
+                    button.className = 'btn btn-success';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-danger';
+                        button.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    button.textContent = '❌ 断开失败';
+                    button.className = 'btn btn-warning';
+
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.className = 'btn btn-danger';
+                        button.disabled = false;
+                    }, 3000);
+                }
+            });
+        }
+
+        // 使用连接码连接到主设备
+        async function connectWithCode(code) {
+            try {
+                log(`🔗 尝试连接码: ${code}`);
+
+                // 查找连接码
+                const codeDoc = db.collection('connectionCodes').doc(code.toUpperCase());
+                const docSnapshot = await codeDoc.get();
+
+                if (!docSnapshot.exists) {
+                    throw new Error('连接码不存在或已过期');
+                }
+
+                const codeData = docSnapshot.data();
+
+                // 检查连接码是否过期
+                if (codeData.expiresAt.toDate() < new Date()) {
+                    await codeDoc.delete();
+                    throw new Error('连接码已过期');
+                }
+
+                // 检查连接码是否已使用
+                if (codeData.used) {
+                    throw new Error('连接码已被使用');
+                }
+
+                // 标记连接码为已使用
+                await codeDoc.update({
+                    used: true,
+                    usedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    secondaryUserId: currentUser.uid
+                });
+
+                // 从主设备同步数据
+                await syncDataFromPrimary(codeData.userId);
+
+                log('✅ 连接成功，数据已同步');
+
+                return true;
+            } catch (error) {
+                log(`❌ 连接失败: ${error.message}`);
+                throw error;
+            }
+        }
+
+        // 从主设备同步数据
+        async function syncDataFromPrimary(primaryUserId) {
+            try {
+                log('📥 从主设备同步数据...');
+
+                const userDoc = db.collection('users').doc(primaryUserId);
+                const docSnapshot = await userDoc.get();
+
+                if (!docSnapshot.exists) {
+                    throw new Error('主设备数据不存在');
+                }
+
+                const userData = docSnapshot.data();
+
+                // 同步测试数据
+                if (userData.testData) {
+                    localStorage.setItem('firebase-test-data', JSON.stringify(userData.testData));
+                    log('✅ 测试数据已同步');
+                }
+
+                log('✅ 所有数据已从主设备同步完成');
+
+            } catch (error) {
+                log(`❌ 数据同步失败: ${error.message}`);
+                throw error;
+            }
+        }
+
+        // 备份测试数据
+        async function backupTestData() {
+            try {
+                if (!currentUser) {
+                    throw new Error('用户未登录');
+                }
+
+                log('☁️ 备份测试数据到Firebase...');
+
+                const userDoc = db.collection('users').doc(currentUser.uid);
+
+                // 准备测试数据
+                const testData = {
+                    petData: {
+                        name: '测试宠物',
+                        level: 5,
+                        health: 80,
+                        happiness: 90,
+                        hunger: 70,
+                        energy: 85,
+                        coins: 150,
+                        experience: 250
+                    },
+                    aiSettings: {
+                        apiType: 'openai',
+                        model: 'gpt-3.5-turbo',
+                        temperature: 0.7
+                    },
+                    avatar: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+                    timestamp: Date.now()
+                };
+
+                const backupData = {
+                    lastBackup: firebase.firestore.FieldValue.serverTimestamp(),
+                    deviceName: getDeviceName(),
+                    dataVersion: '1.0',
+                    testData: testData
+                };
+
+                // 执行备份
+                await userDoc.set(backupData, { merge: true });
+
+                // 保存到本地存储
+                localStorage.setItem('firebase-test-data', JSON.stringify(testData));
+
+                log('✅ 测试数据备份完成');
+
+                return true;
+            } catch (error) {
+                log(`❌ 数据备份失败: ${error.message}`);
+                throw error;
+            }
+        }
+
+        // 恢复测试数据
+        async function restoreTestData() {
+            try {
+                if (!currentUser) {
+                    throw new Error('用户未登录');
+                }
+
+                log('📥 从Firebase恢复测试数据...');
+
+                const userDoc = db.collection('users').doc(currentUser.uid);
+                const docSnapshot = await userDoc.get();
+
+                if (!docSnapshot.exists) {
+                    throw new Error('云端没有找到备份数据');
+                }
+
+                const userData = docSnapshot.data();
+
+                if (!userData.testData) {
+                    throw new Error('云端没有找到测试数据');
+                }
+
+                // 恢复到本地存储
+                localStorage.setItem('firebase-test-data', JSON.stringify(userData.testData));
+
+                const lastBackup = userData.lastBackup ? userData.lastBackup.toDate().toLocaleString() : '未知';
+                log(`✅ 测试数据已恢复\n最后备份时间: ${lastBackup}`);
+
+                return userData.testData;
+            } catch (error) {
+                log(`❌ 数据恢复失败: ${error.message}`);
+                throw error;
+            }
+        }
+
+        // 检查同步状态
+        async function checkSyncStatus() {
+            try {
+                if (!currentUser) {
+                    return {
+                        connected: false,
+                        message: '未连接到云端'
+                    };
+                }
+
+                const userDoc = db.collection('users').doc(currentUser.uid);
+                const docSnapshot = await userDoc.get();
+
+                if (!docSnapshot.exists) {
+                    return {
+                        connected: true,
+                        hasBackup: false,
+                        message: '已连接，但没有备份数据'
+                    };
+                }
+
+                const userData = docSnapshot.data();
+                const lastBackup = userData.lastBackup ? userData.lastBackup.toDate() : null;
+
+                log(`🔍 同步状态检查完成`);
+
+                return {
+                    connected: true,
+                    hasBackup: true,
+                    lastBackup: lastBackup,
+                    hasPetData: !!(userData.testData && userData.testData.petData),
+                    hasAISettings: !!(userData.testData && userData.testData.aiSettings),
+                    hasAvatar: !!(userData.testData && userData.testData.avatar),
+                    deviceName: userData.deviceName,
+                    message: lastBackup ? `最后备份: ${lastBackup.toLocaleString()}` : '有备份数据'
+                };
+            } catch (error) {
+                log(`❌ 检查同步状态失败: ${error.message}`);
+                return {
+                    connected: false,
+                    error: true,
+                    message: `检查失败: ${error.message}`
+                };
+            }
+        }
+
+        // 断开Firebase连接
+        async function disconnectFirebase() {
+            try {
+                if (currentUser) {
+                    await auth.signOut();
+                    log('👋 已断开Firebase连接');
+                }
+
+                currentUser = null;
+                connectionCode = null;
+
+                updateStatus('disconnected', '已断开连接');
+
+                return true;
+            } catch (error) {
+                log(`❌ 断开连接失败: ${error.message}`);
+                throw error;
+            }
+        }
+    </script>
+</body>
+</html>

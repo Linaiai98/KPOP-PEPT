@@ -39,6 +39,18 @@
     --hunger-color: #FFB6C1;      /* 浅粉色 */
     --energy-color: #A8E6CF;      /* 薄荷绿 */
     --experience-color: #87CEEB;  /* 天空蓝 */
+
+    /* Firebase 云端备份样式 */
+    --firebase-primary: #4285f4;
+    --firebase-primary-hover: #3367d6;
+    --firebase-success: #34a853;
+    --firebase-success-hover: #2d8f47;
+    --firebase-warning: #fbbc04;
+    --firebase-warning-hover: #f9ab00;
+    --firebase-danger: #ea4335;
+    --firebase-danger-hover: #d33b2c;
+    --firebase-info: #17a2b8;
+    --firebase-info-hover: #138496;
 }
 
 /* --- 糖果色浮动按钮 --- */
@@ -854,5 +866,241 @@
 
     .achievement {
         padding: 8px 10px;
+    }
+}
+
+/* ===== Firebase 云端备份样式 ===== */
+
+/* Firebase 按钮基础样式 */
+.firebase-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9em;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+    min-height: 36px;
+    box-sizing: border-box;
+}
+
+.firebase-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.firebase-btn:active {
+    transform: translateY(0);
+}
+
+.firebase-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* Firebase 按钮颜色变体 */
+.firebase-btn-primary {
+    background: var(--firebase-primary);
+    color: white;
+}
+
+.firebase-btn-primary:hover:not(:disabled) {
+    background: var(--firebase-primary-hover);
+}
+
+.firebase-btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.firebase-btn-secondary:hover:not(:disabled) {
+    background: #5a6268;
+}
+
+.firebase-btn-success {
+    background: var(--firebase-success);
+    color: white;
+}
+
+.firebase-btn-success:hover:not(:disabled) {
+    background: var(--firebase-success-hover);
+}
+
+.firebase-btn-info {
+    background: var(--firebase-info);
+    color: white;
+}
+
+.firebase-btn-info:hover:not(:disabled) {
+    background: var(--firebase-info-hover);
+}
+
+.firebase-btn-warning {
+    background: var(--firebase-warning);
+    color: #212529;
+}
+
+.firebase-btn-warning:hover:not(:disabled) {
+    background: var(--firebase-warning-hover);
+}
+
+.firebase-btn-danger {
+    background: var(--firebase-danger);
+    color: white;
+}
+
+.firebase-btn-danger:hover:not(:disabled) {
+    background: var(--firebase-danger-hover);
+}
+
+.firebase-btn-outline {
+    background: transparent;
+    color: var(--firebase-primary);
+    border: 1px solid var(--firebase-primary);
+}
+
+.firebase-btn-outline:hover:not(:disabled) {
+    background: var(--firebase-primary);
+    color: white;
+}
+
+/* Firebase 状态容器 */
+.firebase-status-container {
+    transition: all 0.3s ease;
+}
+
+.firebase-status-container.connected {
+    background: #d4edda !important;
+    border-left-color: var(--firebase-success) !important;
+}
+
+.firebase-status-container.connecting {
+    background: #fff3cd !important;
+    border-left-color: var(--firebase-warning) !important;
+}
+
+.firebase-status-container.error {
+    background: #f8d7da !important;
+    border-left-color: var(--firebase-danger) !important;
+}
+
+/* Firebase 区域样式 */
+.firebase-section {
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 15px;
+    background: #ffffff;
+    margin-bottom: 15px;
+}
+
+.firebase-section h5 {
+    margin: 0 0 10px 0;
+    color: #495057;
+    font-size: 1.1em;
+}
+
+/* Firebase 连接码输入框样式 */
+#firebase-connection-code-input {
+    transition: border-color 0.2s ease;
+}
+
+#firebase-connection-code-input:focus {
+    outline: none;
+    border-color: var(--firebase-primary) !important;
+    box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+}
+
+#firebase-connection-code-text {
+    transition: border-color 0.2s ease;
+}
+
+#firebase-connection-code-text:focus {
+    outline: none;
+    border-color: var(--firebase-success) !important;
+    box-shadow: 0 0 0 2px rgba(52, 168, 83, 0.2);
+}
+
+/* Firebase 同步详情样式 */
+#firebase-sync-details {
+    animation: fadeIn 0.3s ease;
+}
+
+#firebase-sync-details div {
+    margin-bottom: 5px;
+    padding: 2px 0;
+}
+
+#firebase-sync-details div:last-child {
+    margin-bottom: 0;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .firebase-btn {
+        padding: 10px 14px;
+        font-size: 0.85em;
+        min-height: 40px;
+    }
+
+    .firebase-section {
+        padding: 12px;
+    }
+
+    #firebase-connection-code-input,
+    #firebase-connection-code-text {
+        font-size: 14px;
+        padding: 10px;
+    }
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.firebase-btn.loading {
+    animation: pulse 1.5s infinite;
+}
+
+/* Firebase 状态图标动画 */
+#firebase-status-icon {
+    transition: all 0.3s ease;
+}
+
+#firebase-status-icon.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
     }
 }

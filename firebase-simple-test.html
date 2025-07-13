@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase 简化UI测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        /* 模拟简化的Firebase UI */
+        .firebase-simple-ui {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        
+        .status-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        
+        .status-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .controls-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .input-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .firebase-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s ease;
+        }
+        
+        .firebase-btn:hover {
+            transform: translateY(-1px);
+        }
+        
+        .firebase-btn-primary {
+            background: #4285f4;
+            color: white;
+        }
+        
+        .firebase-btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .firebase-btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .firebase-btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+        
+        .firebase-btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .firebase-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        input[type="text"] {
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+            text-align: center;
+            text-transform: uppercase;
+        }
+        
+        .code-display {
+            background: #f8fff9;
+            border: 1px solid #28a745;
+            border-radius: 4px;
+            padding: 6px;
+            margin-top: 8px;
+            display: none;
+        }
+        
+        .code-text {
+            font-family: monospace;
+            font-size: 14px;
+            text-align: center;
+            letter-spacing: 1px;
+            margin-bottom: 3px;
+        }
+        
+        .code-expiry {
+            font-size: 0.8em;
+            color: #28a745;
+            text-align: center;
+        }
+        
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .comparison h3 {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        
+        .old-ui {
+            opacity: 0.7;
+        }
+        
+        @media (max-width: 768px) {
+            .comparison {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    
+    <!-- 加载jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>🔥 Firebase 简化UI对比测试</h1>
+    
+    <div class="container">
+        <h2>✨ 新版简化UI</h2>
+        <p>更简洁、更直观的Firebase云端备份界面</p>
+        
+        <!-- 简化的Firebase UI -->
+        <div class="firebase-simple-ui">
+            <div class="status-row">
+                <div class="status-info">
+                    <span id="status-icon">⚪</span>
+                    <span id="status-text" style="font-size: 0.9em;">未连接</span>
+                </div>
+                <button id="init-btn" class="firebase-btn firebase-btn-primary">
+                    🔗 连接
+                </button>
+            </div>
+            
+            <!-- 主设备功能 -->
+            <div id="primary-controls" style="display: none;">
+                <div class="controls-row">
+                    <button id="generate-code-btn" class="firebase-btn firebase-btn-secondary" style="flex: 1;">
+                        🔑 生成连接码
+                    </button>
+                    <button id="backup-btn" class="firebase-btn firebase-btn-success" style="flex: 1;">
+                        ☁️ 备份
+                    </button>
+                </div>
+                
+                <!-- 连接码显示 -->
+                <div id="code-display" class="code-display">
+                    <div style="font-size: 0.85em; margin-bottom: 4px; color: #28a745; font-weight: bold;">
+                        🔑 连接码（分享给其他设备）
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
+                        <input type="text" id="code-text" readonly value="ABC123"
+                               style="flex: 1; padding: 6px; border: 1px solid #28a745; border-radius: 4px; background: #f8fff9; font-family: monospace; font-size: 14px; text-align: center; letter-spacing: 1px; font-weight: bold;">
+                        <button id="copy-code-btn" class="firebase-btn firebase-btn-secondary" style="padding: 6px 10px; font-size: 0.8em;">
+                            📋 复制
+                        </button>
+                    </div>
+                    <div class="code-expiry">⏰ 有效期5分钟，请尽快使用</div>
+                </div>
+            </div>
+            
+            <!-- 从设备功能 -->
+            <div id="secondary-controls">
+                <div class="input-row">
+                    <input type="text" id="code-input" placeholder="输入连接码" maxlength="6" style="flex: 1;">
+                    <button id="connect-btn" class="firebase-btn firebase-btn-primary">
+                        连接
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 管理功能 -->
+            <div id="management-controls" style="display: none; margin-top: 10px;">
+                <div class="controls-row">
+                    <button id="restore-btn" class="firebase-btn firebase-btn-info" style="flex: 1;">
+                        📥 恢复
+                    </button>
+                    <button id="disconnect-btn" class="firebase-btn firebase-btn-danger" style="flex: 1;">
+                        断开
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 15px;">
+            <button id="test-connect" class="firebase-btn firebase-btn-primary">🧪 测试连接流程</button>
+            <button id="reset-ui" class="firebase-btn firebase-btn-secondary">🔄 重置UI</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>📝 操作日志</h2>
+        <div id="log" class="log">等待操作...</div>
+        <button id="clear-log" class="firebase-btn firebase-btn-secondary" style="margin-top: 10px;">🧹 清空日志</button>
+    </div>
+
+    <script>
+        // 日志函数
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.textContent += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(message);
+        }
+        
+        // 更新状态显示
+        function updateStatus(status, message) {
+            const statusIcon = document.getElementById('status-icon');
+            const statusText = document.getElementById('status-text');
+            const primaryControls = document.getElementById('primary-controls');
+            const secondaryControls = document.getElementById('secondary-controls');
+            const managementControls = document.getElementById('management-controls');
+            const initBtn = document.getElementById('init-btn');
+
+            switch (status) {
+                case 'connected':
+                    statusIcon.textContent = '🟢';
+                    statusText.textContent = message || '已连接';
+                    initBtn.textContent = '✅ 已连接';
+                    initBtn.disabled = true;
+                    primaryControls.style.display = 'block';
+                    // 连接成功后保持输入框可见，方便其他设备连接
+                    secondaryControls.style.display = 'block';
+                    managementControls.style.display = 'block';
+                    break;
+
+                case 'connecting':
+                    statusIcon.textContent = '🟡';
+                    statusText.textContent = message || '连接中...';
+                    initBtn.textContent = '🔄 连接中...';
+                    initBtn.disabled = true;
+                    break;
+
+                case 'error':
+                    statusIcon.textContent = '🔴';
+                    statusText.textContent = message || '连接错误';
+                    initBtn.textContent = '❌ 重试';
+                    initBtn.disabled = false;
+                    primaryControls.style.display = 'none';
+                    managementControls.style.display = 'none';
+                    secondaryControls.style.display = 'block';
+                    break;
+
+                default: // disconnected
+                    statusIcon.textContent = '⚪';
+                    statusText.textContent = message || '未连接';
+                    initBtn.textContent = '🔗 连接';
+                    initBtn.disabled = false;
+                    primaryControls.style.display = 'none';
+                    managementControls.style.display = 'none';
+                    secondaryControls.style.display = 'block';
+                    break;
+            }
+
+            log(`状态更新: ${status} - ${message || ''}`);
+        }
+        
+        // 页面加载完成后绑定事件
+        $(document).ready(function() {
+            log('简化UI测试页面加载完成');
+            
+            // 连接按钮
+            $('#init-btn').on('click', function() {
+                updateStatus('connecting', '连接中...');
+                setTimeout(() => {
+                    updateStatus('connected', '已连接');
+                    log('✅ Firebase连接成功');
+                }, 1500);
+            });
+            
+            // 生成连接码
+            $('#generate-code-btn').on('click', function() {
+                const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+                $('#code-text').val(code);
+                $('#code-display').show();
+                log(`🔑 生成连接码: ${code}`);
+            });
+
+            // 复制连接码
+            $('#copy-code-btn').on('click', function() {
+                const code = $('#code-text').val();
+                navigator.clipboard.writeText(code).then(() => {
+                    log(`📋 连接码已复制: ${code}`);
+                }).catch(() => {
+                    log('❌ 复制失败，请手动复制');
+                });
+            });
+            
+            // 备份按钮
+            $('#backup-btn').on('click', function() {
+                log('☁️ 开始备份数据...');
+                setTimeout(() => {
+                    log('✅ 数据备份完成');
+                }, 1000);
+            });
+            
+            // 连接码输入
+            $('#code-input').on('input', function() {
+                let value = $(this).val().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                if (value.length > 6) {
+                    value = value.substring(0, 6);
+                }
+                $(this).val(value);
+            });
+            
+            // 连接按钮
+            $('#connect-btn').on('click', function() {
+                const code = $('#code-input').val();
+                if (code.length !== 6) {
+                    log('❌ 请输入6位连接码');
+                    return;
+                }
+                
+                updateStatus('connecting', '连接中...');
+                log(`🔗 尝试连接，连接码: ${code}`);
+                
+                setTimeout(() => {
+                    updateStatus('connected', '已连接');
+                    $('#code-input').val('');
+                    log('✅ 设备连接成功，数据已同步');
+                }, 1500);
+            });
+            
+            // 恢复按钮
+            $('#restore-btn').on('click', function() {
+                log('📥 开始恢复数据...');
+                setTimeout(() => {
+                    log('✅ 数据恢复完成');
+                }, 1000);
+            });
+            
+            // 断开按钮
+            $('#disconnect-btn').on('click', function() {
+                updateStatus('disconnected', '已断开连接');
+                $('#code-display').hide();
+                log('🔌 已断开云端连接');
+            });
+            
+            // 测试连接流程
+            $('#test-connect').on('click', function() {
+                log('🧪 开始测试完整连接流程...');
+                
+                // 模拟完整流程
+                updateStatus('connecting', '连接中...');
+                
+                setTimeout(() => {
+                    updateStatus('connected', '已连接');
+                    log('✅ 连接成功');
+                }, 1000);
+                
+                setTimeout(() => {
+                    $('#generate-code-btn').click();
+                }, 2000);
+                
+                setTimeout(() => {
+                    $('#backup-btn').click();
+                }, 3000);
+                
+                setTimeout(() => {
+                    log('🎉 测试流程完成！');
+                }, 4000);
+            });
+            
+            // 重置UI
+            $('#reset-ui').on('click', function() {
+                updateStatus('disconnected', '未连接');
+                $('#code-display').hide();
+                $('#code-input').val('');
+                log('🔄 UI已重置');
+            });
+            
+            // 清空日志
+            $('#clear-log').on('click', function() {
+                $('#log').text('');
+                log('日志已清空');
+            });
+        });
+    </script>
+</body>
+</html>
