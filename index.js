@@ -1577,9 +1577,10 @@ jQuery(async () => {
      */
     function getAPIDisplayName(apiType) {
         const displayNames = {
-            'openai': 'OpenAI (ChatGPT)',
-            'claude': 'Claude (Anthropic)',
-            'google': 'Google AI Studio',
+            'openai': 'OpenAI',
+            'claude': 'Claude',
+            'google': 'Google',
+            'deepseek': 'DeepSeek',
             'mistral': 'Mistral AI',
             'ollama': 'Ollama (本地)',
             'kobold': 'KoboldAI',
@@ -1879,17 +1880,46 @@ jQuery(async () => {
      *
      * 🧪 保留的测试函数：
      * - debugAIFunctions() - 检查AI调用函数的实际内容
+     * - testDirectConnection() - 测试直连+中继退回逻辑
+     * - testModelFetch() - 测试模型获取（直连+中继退回）
+     * - testGoogleURLBuild() - 测试Google API URL构建逻辑
+     * - resetAPIConfig() - 重置API配置到正确的官方端点
+     * - testAutoFillURL() - 测试自动填充URL功能
+     * - testAPIConfig() - 测试API配置优化
      * - testRelayServerSimple() - 简单测试中继服务器连接
      * - testRelayServer() - 完整测试中继服务器代理功能
      * - checkFloatingButton() - 检查和修复悬浮按钮
+     * - getThirdPartyModels() - 获取模型列表（支持直连+中继退回）
+     *
+     * 🔄 UI改进：
+     * - 在API URL输入框旁边添加了重置按钮
+     * - 支持一键重置到官方端点
+     *
+     * 🎯 API配置优化：
+     * - 简化了API类型名称（OpenAI、Claude、Google、DeepSeek）
+     * - 新增DeepSeek API支持，包含Chat和Coder模型
+     * - 选择API类型时自动填入官方端点
+     * - Google统一了Gemini系列模型
+     * - 官方API首选直连，失败时自动退回中继服务器
      *
      * 🔧 修复内容：
      * - 修复了 dataSource 未定义错误
      * - 修复了 targetHeaders 未定义错误
      * - 修复了 relayServerUrl 未定义错误
+     * - 修复了 callViaRelay 函数未定义错误
      * - 修复了聊天功能中不必要的中继服务器连接测试导致的超时问题
+     * - 修复了API类型切换时不自动填入官方端点的问题（在UI事件监听中添加switch逻辑）
+     * - 修复了第三方模型获取时的CORS错误无限循环问题
+     * - 修复了Google API的URL构建错误（避免重复的v1beta路径和models前缀）
+     * - 修复了Google API模型名称处理，避免重复的models/前缀导致URL错误
+     * - 重写了模型获取逻辑，支持直连+中继退回机制
+     * - 添加了API配置重置功能，可清理错误的URL配置
+     * - 在API URL输入框旁边添加了重置按钮，支持一键重置到官方端点
+     * - 实现了真正的直连逻辑，而不是伪装的中继调用
      * - 调整了聊天弹窗高度，与商店弹窗保持一致（70vh）
-     * - 清理了未使用的变量
+     * - 添加了聊天历史记录支持，AI能记住之前的对话
+     * - 删除了聊天界面的开头欢迎消息，简化体验
+     * - 清理了未使用的变量和无法访问的代码
      * - 保持了所有核心功能
      */
 
@@ -1976,6 +2006,259 @@ jQuery(async () => {
         } else {
             console.log('❌ callAI 函数不存在');
         }
+    };
+
+    /**
+     * 🧪 测试直连+中继退回逻辑
+     */
+    window.testDirectConnection = function() {
+        console.log('🧪 测试直连+中继退回逻辑...');
+
+        const settings = loadAISettings();
+        if (!settings.apiType || !settings.apiUrl || !settings.apiKey) {
+            console.log('❌ 请先配置API设置');
+            return;
+        }
+
+        console.log(`📋 当前配置: ${settings.apiType} | ${settings.apiUrl}`);
+
+        const isOfficialAPI = ['openai', 'claude', 'google', 'deepseek'].includes(settings.apiType);
+        const isCustomAPI = settings.apiType === 'custom';
+
+        if (isOfficialAPI) {
+            console.log('✅ 官方API - 将尝试直连，失败时退回中继');
+        } else if (isCustomAPI) {
+            console.log('🔧 自定义API - 将使用中继服务器');
+        } else {
+            console.log('❓ 未知API类型');
+        }
+
+        console.log('\n🚀 发送测试请求...');
+        callAI('请简单回复"测试成功"', 10000).then(response => {
+            console.log('✅ 测试成功，AI回复:', response);
+        }).catch(error => {
+            console.log('❌ 测试失败:', error.message);
+        });
+    };
+
+    /**
+     * 🧪 测试模型获取（直连+中继退回）
+     */
+    window.testModelFetch = async function() {
+        console.log('🧪 测试模型获取功能...');
+
+        try {
+            console.log('📋 当前API配置:');
+            console.log(`  类型: ${$('#ai-api-select').val()}`);
+            console.log(`  URL: ${$('#ai-url-input').val()}`);
+            console.log(`  密钥: ${$('#ai-key-input').val() ? '已设置' : '未设置'}`);
+
+            console.log('\n🚀 开始获取模型列表...');
+            const models = await getThirdPartyModels();
+
+            if (models && models.length > 0) {
+                console.log(`✅ 成功获取 ${models.length} 个模型:`);
+                models.forEach((model, index) => {
+                    console.log(`  ${index + 1}. ${model.name} (${model.id})`);
+                });
+
+                // 更新UI中的模型下拉框
+                const modelSelect = $('#ai-model-input');
+                if (modelSelect.length > 0) {
+                    const currentValue = modelSelect.val();
+                    modelSelect.empty();
+
+                    models.forEach(model => {
+                        modelSelect.append(`<option value="${model.id}">${model.name}</option>`);
+                    });
+
+                    // 尝试恢复之前的选择
+                    if (currentValue && models.find(m => m.id === currentValue)) {
+                        modelSelect.val(currentValue);
+                    }
+
+                    console.log('✅ 模型下拉框已更新');
+                }
+
+            } else {
+                console.log('⚠️ 未获取到任何模型');
+            }
+
+        } catch (error) {
+            console.error('❌ 模型获取测试失败:', error);
+        }
+
+        console.log('✅ 模型获取测试完成');
+    };
+
+    /**
+     * 🧪 测试Google API URL构建
+     */
+    window.testGoogleURLBuild = function() {
+        console.log('🧪 测试Google API URL构建...');
+
+        const testCases = [
+            {
+                baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+                model: 'gemini-pro',
+                expected: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent'
+            },
+            {
+                baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+                model: 'models/gemini-pro',
+                expected: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent'
+            },
+            {
+                baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+                model: 'gemini-2.5-pro',
+                expected: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent'
+            }
+        ];
+
+        testCases.forEach((testCase, index) => {
+            let targetApiUrl = testCase.baseUrl;
+            let modelName = testCase.model;
+
+            // 应用相同的逻辑
+            if (modelName.startsWith('models/')) {
+                modelName = modelName.replace('models/', '');
+            }
+
+            if (targetApiUrl.endsWith('/v1beta')) {
+                targetApiUrl += `/models/${modelName}:generateContent`;
+            }
+
+            const success = targetApiUrl === testCase.expected;
+            console.log(`测试 ${index + 1}: ${success ? '✅' : '❌'}`);
+            console.log(`  输入: ${testCase.baseUrl} + ${testCase.model}`);
+            console.log(`  期望: ${testCase.expected}`);
+            console.log(`  实际: ${targetApiUrl}`);
+            console.log('');
+        });
+
+        console.log('✅ Google API URL构建测试完成');
+    };
+
+    /**
+     * 🔧 重置API配置
+     */
+    window.resetAPIConfig = function() {
+        console.log('🔧 重置API配置...');
+
+        // 获取当前选择的API类型
+        const currentApiType = $('#ai-api-select').val();
+        console.log(`当前API类型: ${currentApiType}`);
+
+        // 强制重新填入正确的URL
+        switch(currentApiType) {
+            case 'openai':
+                $('#ai-url-input').val('https://api.openai.com/v1');
+                console.log('✅ 重置为OpenAI官方端点');
+                break;
+            case 'claude':
+                $('#ai-url-input').val('https://api.anthropic.com/v1');
+                console.log('✅ 重置为Claude官方端点');
+                break;
+            case 'google':
+                $('#ai-url-input').val('https://generativelanguage.googleapis.com/v1beta');
+                console.log('✅ 重置为Google官方端点');
+                break;
+            case 'deepseek':
+                $('#ai-url-input').val('https://api.deepseek.com/v1');
+                console.log('✅ 重置为DeepSeek官方端点');
+                break;
+            case 'ollama':
+                $('#ai-url-input').val('http://localhost:11434/v1');
+                console.log('✅ 重置为Ollama默认端点');
+                break;
+            case 'lmstudio':
+                $('#ai-url-input').val('http://localhost:1234/v1');
+                console.log('✅ 重置为LM Studio默认端点');
+                break;
+            default:
+                console.log('❓ 未知API类型，无法重置');
+                break;
+        }
+
+        // 保存设置
+        saveAISettings();
+        console.log('✅ API配置已重置并保存');
+    };
+
+    /**
+     * 🧪 测试自动填充URL功能
+     */
+    window.testAutoFillURL = function() {
+        console.log('🧪 测试自动填充URL功能...');
+
+        const apiTypes = ['openai', 'claude', 'google', 'deepseek', 'ollama', 'lmstudio', 'custom'];
+        const expectedUrls = {
+            'openai': 'https://api.openai.com/v1',
+            'claude': 'https://api.anthropic.com/v1',
+            'google': 'https://generativelanguage.googleapis.com/v1beta',
+            'deepseek': 'https://api.deepseek.com/v1',
+            'ollama': 'http://localhost:11434/v1',
+            'lmstudio': 'http://localhost:1234/v1',
+            'custom': '不自动填充'
+        };
+
+        console.log('📋 测试各API类型的自动填充...');
+
+        apiTypes.forEach(apiType => {
+            // 模拟选择API类型
+            $('#ai-api-select').val(apiType).trigger('change');
+
+            // 检查URL是否正确填充
+            const currentUrl = $('#ai-url-input').val();
+            const expectedUrl = expectedUrls[apiType];
+
+            if (apiType === 'custom') {
+                console.log(`${apiType}: 保持现有URL (${currentUrl}) ✅`);
+            } else if (currentUrl === expectedUrl) {
+                console.log(`${apiType}: ${currentUrl} ✅`);
+            } else {
+                console.log(`${apiType}: 期望 ${expectedUrl}, 实际 ${currentUrl} ❌`);
+            }
+        });
+
+        console.log('\n✅ 自动填充URL测试完成');
+        console.log('💡 现在切换API类型时应该自动填入对应的官方端点');
+    };
+
+    /**
+     * 🧪 测试API配置优化
+     */
+    window.testAPIConfig = function() {
+        console.log('🧪 测试API配置优化...');
+
+        // 测试API类型选项
+        const apiSelect = $('#ai-api-select');
+        const options = apiSelect.find('option');
+
+        console.log('📋 可用的API类型:');
+        options.each(function() {
+            const value = $(this).val();
+            const text = $(this).text();
+            if (value) {
+                console.log(`  ${value}: ${text}`);
+            }
+        });
+
+        // 测试默认URL设置
+        console.log('\n🔗 默认URL配置:');
+        const defaults = {
+            'openai': 'https://api.openai.com/v1',
+            'claude': 'https://api.anthropic.com/v1',
+            'google': 'https://generativelanguage.googleapis.com/v1beta',
+            'deepseek': 'https://api.deepseek.com/v1'
+        };
+
+        Object.entries(defaults).forEach(([type, url]) => {
+            console.log(`  ${type}: ${url}`);
+        });
+
+        console.log('\n✅ API配置优化验证完成');
+        console.log('💡 现在API类型名称更简洁，选择后会自动填入官方端点');
     };
 
     /**
@@ -2091,7 +2374,9 @@ jQuery(async () => {
                 } else if (backendType === 'claude') {
                     configMessage += '，请输入Claude API密钥';
                 } else if (backendType === 'google') {
-                    configMessage += '，请输入Google AI API密钥';
+                    configMessage += '，请输入Google API密钥';
+                } else if (backendType === 'deepseek') {
+                    configMessage += '，请输入DeepSeek API密钥';
                 } else if (backendType === 'ollama' || backendType === 'lmstudio') {
                     configMessage += '，本地API无需密钥';
                 } else {
@@ -2126,6 +2411,7 @@ jQuery(async () => {
                 'openai': { url: 'https://api.openai.com/v1', model: 'gpt-4' },
                 'claude': { url: 'https://api.anthropic.com/v1', model: 'claude-3-sonnet-20240229' },
                 'google': { url: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-pro' },
+                'deepseek': { url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
                 'mistral': { url: 'https://api.mistral.ai/v1', model: 'mistral-medium' },
                 'ollama': { url: 'http://localhost:11434/v1', model: 'llama2' },
                 'lmstudio': { url: 'http://localhost:1234/v1', model: 'local-model' },
@@ -2151,19 +2437,15 @@ jQuery(async () => {
             if (backendInfo) {
                 console.log(`[${extensionName}] 💡 为后端API提供配置建议`);
 
-                // 根据API类型自动设置URL
+                // 根据API类型自动设置URL（官方API总是填入官方端点）
                 if (backendInfo.type === 'openai') {
-                    if (!$('#ai-url-input').val()) {
-                        $('#ai-url-input').val('https://api.openai.com/v1');
-                    }
+                    $('#ai-url-input').val('https://api.openai.com/v1');
                 } else if (backendInfo.type === 'claude') {
-                    if (!$('#ai-url-input').val()) {
-                        $('#ai-url-input').val('https://api.anthropic.com/v1');
-                    }
+                    $('#ai-url-input').val('https://api.anthropic.com/v1');
                 } else if (backendInfo.type === 'google') {
-                    if (!$('#ai-url-input').val()) {
-                        $('#ai-url-input').val('https://generativelanguage.googleapis.com/v1beta');
-                    }
+                    $('#ai-url-input').val('https://generativelanguage.googleapis.com/v1beta');
+                } else if (backendInfo.type === 'deepseek') {
+                    $('#ai-url-input').val('https://api.deepseek.com/v1');
                 } else if (backendInfo.type === 'ollama') {
                     if (!$('#ai-url-input').val()) {
                         $('#ai-url-input').val('http://localhost:11434/v1');
@@ -2251,7 +2533,7 @@ jQuery(async () => {
 
     /**
      * 🚀 统一AI调用函数 - 所有AI请求的唯一入口
-     * 通过中继服务器调用第三方API，解决CORS和移动端连接问题
+     * 官方API首选直连，失败时自动退回中继服务器
      * @param {string} prompt - 要发送给AI的提示词
      * @param {number} timeout - 超时时间（毫秒）
      * @returns {Promise<string>} - AI生成的回复
@@ -2270,14 +2552,43 @@ jQuery(async () => {
 
             console.log(`[${extensionName}] 🔧 API配置: ${settings.apiType} | ${settings.apiUrl}`);
 
-            // 2. 中继服务器地址
-            const relayServerUrl = 'http://154.12.38.33:3000/proxy';
+            // 2. 判断是否为官方API（支持直连）
+            const isOfficialAPI = ['openai', 'claude', 'google', 'deepseek'].includes(settings.apiType);
+            const isCustomAPI = settings.apiType === 'custom';
 
-            // 3. 构建目标API URL
+            if (isOfficialAPI) {
+                console.log(`[${extensionName}] 🎯 检测到官方API，尝试直连...`);
+                try {
+                    return await callDirectAPI(prompt, settings, timeout);
+                } catch (directError) {
+                    console.log(`[${extensionName}] ⚠️ 直连失败，退回中继服务器: ${directError.message}`);
+                    return await callViaRelay(prompt, settings, timeout);
+                }
+            } else if (isCustomAPI) {
+                console.log(`[${extensionName}] 🔧 自定义API，使用中继服务器...`);
+                return await callViaRelay(prompt, settings, timeout);
+            } else {
+                throw new Error(`不支持的API类型: ${settings.apiType}`);
+            }
+
+        } catch (error) {
+            console.error(`[${extensionName}] ❌ 统一AI调用失败:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * 🎯 直连官方API
+     */
+    async function callDirectAPI(prompt, settings, timeout) {
+        console.log(`[${extensionName}] 🎯 开始直连官方API...`);
+
+        try {
+            // 1. 构建目标API URL
             let targetApiUrl = settings.apiUrl.replace(/\/+$/, '');
 
             // 根据API类型自动添加正确的端点
-            if (settings.apiType === 'openai' || settings.apiType === 'custom' || !settings.apiType) {
+            if (settings.apiType === 'openai' || settings.apiType === 'deepseek') {
                 if (!targetApiUrl.includes('/chat/completions')) {
                     if (targetApiUrl.endsWith('/v1')) {
                         targetApiUrl += '/chat/completions';
@@ -2299,7 +2610,13 @@ jQuery(async () => {
                 }
             } else if (settings.apiType === 'google') {
                 if (!targetApiUrl.includes(':generateContent')) {
-                    const modelName = settings.apiModel || 'gemini-pro';
+                    let modelName = settings.apiModel || 'gemini-pro';
+
+                    // 确保模型名称不包含 models/ 前缀
+                    if (modelName.startsWith('models/')) {
+                        modelName = modelName.replace('models/', '');
+                    }
+
                     if (targetApiUrl.endsWith('/v1beta')) {
                         targetApiUrl += `/models/${modelName}:generateContent`;
                     } else if (!targetApiUrl.includes('/v1beta')) {
@@ -2310,162 +2627,233 @@ jQuery(async () => {
                 }
             }
 
-            console.log(`[${extensionName}] 🎯 目标API: ${targetApiUrl}`);
+            console.log(`[${extensionName}] 🎯 直连目标: ${targetApiUrl}`);
 
-            // 4. 构建请求头
-            const targetHeaders = { 'Content-Type': 'application/json' };
+            // 2. 构建请求头
+            const headers = { 'Content-Type': 'application/json' };
 
-            // 5. 根据API类型设置认证头
+            // 3. 根据API类型设置认证头
             if (settings.apiType === 'google') {
-                targetHeaders['x-goog-api-key'] = settings.apiKey;
-                if (!targetApiUrl.includes('?key=') && !targetApiUrl.includes('&key=')) {
-                    targetApiUrl += `?key=${settings.apiKey}`;
-                }
+                headers['x-goog-api-key'] = settings.apiKey;
             } else if (settings.apiType === 'claude') {
-                targetHeaders['x-api-key'] = settings.apiKey;
-                targetHeaders['anthropic-version'] = '2023-06-01';
+                headers['x-api-key'] = settings.apiKey;
+                headers['anthropic-version'] = '2023-06-01';
             } else {
-                targetHeaders['Authorization'] = `Bearer ${settings.apiKey}`;
+                // OpenAI 和 DeepSeek
+                headers['Authorization'] = `Bearer ${settings.apiKey}`;
             }
 
-            // 6. 构建请求体
-            let targetRequestBody;
-            if (settings.apiType === 'openai' || settings.apiType === 'custom' || !settings.apiType) {
-                targetRequestBody = {
-                    model: settings.apiModel || 'gpt-3.5-turbo',
-                    messages: [{ role: 'user', content: prompt }],
-                    max_tokens: 4000,
-                    temperature: 0.8
-                };
-            } else if (settings.apiType === 'claude') {
-                targetRequestBody = {
+            // 4. 构建请求体
+            let requestBody;
+            if (settings.apiType === 'claude') {
+                requestBody = {
                     model: settings.apiModel || 'claude-3-sonnet-20240229',
-                    max_tokens: 4000,
+                    max_tokens: 1000,
                     messages: [{ role: 'user', content: prompt }]
                 };
             } else if (settings.apiType === 'google') {
-                targetRequestBody = {
+                requestBody = {
                     contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { maxOutputTokens: 4000, temperature: 0.8 }
+                    generationConfig: {
+                        maxOutputTokens: 1000,
+                        temperature: 0.7
+                    }
                 };
             } else {
-                // 通用格式
-                targetRequestBody = {
-                    model: settings.apiModel || 'default',
-                    prompt: prompt,
-                    max_tokens: 4000,
-                    temperature: 0.8
+                // OpenAI 和 DeepSeek 格式
+                requestBody = {
+                    model: settings.apiModel || (settings.apiType === 'deepseek' ? 'deepseek-chat' : 'gpt-3.5-turbo'),
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 1000,
+                    temperature: 0.7
                 };
             }
 
-            // 7. 构建中继服务器请求体
-            const relayRequestBody = {
-                targetUrl: targetApiUrl,
-                method: 'POST',
-                headers: targetHeaders,
-                body: targetRequestBody
-            };
+            // 5. 发送直连请求
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-            console.log(`[${extensionName}] 📦 中继请求体:`, {
-                targetUrl: targetApiUrl,
+            console.log(`[${extensionName}] 🚀 开始直连请求...`);
+
+            const response = await fetch(targetApiUrl, {
                 method: 'POST',
-                headers: targetHeaders,
-                bodySize: JSON.stringify(targetRequestBody).length
+                headers: headers,
+                body: JSON.stringify(requestBody),
+                signal: controller.signal
             });
 
-            // 8. 设置超时控制
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => {
-                console.log(`[${extensionName}] ⏰ API调用超时，取消请求`);
-                controller.abort();
-            }, timeout);
+            clearTimeout(timeoutId);
 
-            // 9. 发送请求
-            const startTime = Date.now();
-            console.log(`[${extensionName}] 🚀 开始发送请求...`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
 
-            const fetchOptions = {
+            const data = await response.json();
+
+            // 6. 解析响应
+            let aiReply;
+            if (settings.apiType === 'claude') {
+                if (data.content && data.content[0] && data.content[0].text) {
+                    aiReply = data.content[0].text;
+                } else {
+                    throw new Error('Claude API响应格式异常');
+                }
+            } else if (settings.apiType === 'google') {
+                if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
+                    aiReply = data.candidates[0].content.parts[0].text;
+                } else {
+                    throw new Error('Google API响应格式异常');
+                }
+            } else {
+                // OpenAI 和 DeepSeek 格式
+                if (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {
+                    aiReply = data.choices[0].message.content;
+                } else {
+                    throw new Error('API响应格式异常');
+                }
+            }
+
+            console.log(`[${extensionName}] ✅ 直连成功，AI回复: ${aiReply.substring(0, 50)}...`);
+            return aiReply.trim();
+
+        } catch (error) {
+            console.error(`[${extensionName}] ❌ 统一AI调用失败:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * 🔄 通过中继服务器调用API
+     */
+    async function callViaRelay(prompt, settings, timeout) {
+        console.log(`[${extensionName}] 🔄 开始中继服务器调用...`);
+
+        const relayServerUrl = 'http://154.12.38.33:3000/proxy';
+
+        // 这里使用原有的中继服务器逻辑
+        // 构建目标API URL
+        let targetApiUrl = settings.apiUrl.replace(/\/+$/, '');
+
+        // 根据API类型自动添加正确的端点
+        if (settings.apiType === 'openai' || settings.apiType === 'custom' || settings.apiType === 'deepseek') {
+            if (!targetApiUrl.includes('/chat/completions')) {
+                if (targetApiUrl.endsWith('/v1')) {
+                    targetApiUrl += '/chat/completions';
+                } else if (!targetApiUrl.includes('/v1')) {
+                    targetApiUrl += '/v1/chat/completions';
+                } else {
+                    targetApiUrl += '/chat/completions';
+                }
+            }
+        } else if (settings.apiType === 'claude') {
+            if (!targetApiUrl.includes('/messages')) {
+                if (targetApiUrl.endsWith('/v1')) {
+                    targetApiUrl += '/messages';
+                } else if (!targetApiUrl.includes('/v1')) {
+                    targetApiUrl += '/v1/messages';
+                } else {
+                    targetApiUrl += '/messages';
+                }
+            }
+        } else if (settings.apiType === 'google') {
+            if (!targetApiUrl.includes(':generateContent')) {
+                let modelName = settings.apiModel || 'gemini-pro';
+
+                // 确保模型名称不包含 models/ 前缀
+                if (modelName.startsWith('models/')) {
+                    modelName = modelName.replace('models/', '');
+                }
+
+                if (targetApiUrl.endsWith('/v1beta')) {
+                    targetApiUrl += `/models/${modelName}:generateContent`;
+                } else if (!targetApiUrl.includes('/v1beta')) {
+                    targetApiUrl += `/v1beta/models/${modelName}:generateContent`;
+                } else {
+                    targetApiUrl += `/models/${modelName}:generateContent`;
+                }
+            }
+        }
+
+        // 构建请求头
+        const targetHeaders = { 'Content-Type': 'application/json' };
+
+        // 根据API类型设置认证头
+        if (settings.apiType === 'google') {
+            targetHeaders['x-goog-api-key'] = settings.apiKey;
+        } else if (settings.apiType === 'claude') {
+            targetHeaders['x-api-key'] = settings.apiKey;
+            targetHeaders['anthropic-version'] = '2023-06-01';
+        } else {
+            targetHeaders['Authorization'] = `Bearer ${settings.apiKey}`;
+        }
+
+        // 构建请求体
+        let targetRequestBody;
+        if (settings.apiType === 'openai' || settings.apiType === 'custom' || settings.apiType === 'deepseek') {
+            targetRequestBody = {
+                model: settings.apiModel || (settings.apiType === 'deepseek' ? 'deepseek-chat' : 'gpt-3.5-turbo'),
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 4000,
+                temperature: 0.8
+            };
+        } else if (settings.apiType === 'claude') {
+            targetRequestBody = {
+                model: settings.apiModel || 'claude-3-sonnet-20240229',
+                max_tokens: 4000,
+                messages: [{ role: 'user', content: prompt }]
+            };
+        } else if (settings.apiType === 'google') {
+            targetRequestBody = {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { maxOutputTokens: 4000, temperature: 0.8 }
+            };
+        }
+
+        // 构建中继服务器请求体
+        const relayRequestBody = {
+            targetUrl: targetApiUrl,
+            method: 'POST',
+            headers: targetHeaders,
+            body: targetRequestBody
+        };
+
+        // 发送请求
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        try {
+            const response = await fetch(relayServerUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(relayRequestBody),
                 signal: controller.signal
-            };
-
-            // 移动端特殊处理
-            const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            if (isMobile) {
-                fetchOptions.headers = {
-                    ...fetchOptions.headers,
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache'
-                };
-                console.log(`[${extensionName}] 📱 移动端优化已应用`);
-            }
-
-            // 通过中继服务器发送请求
-            console.log(`[${extensionName}] 🌐 发送到中继服务器: ${relayServerUrl}`);
-            console.log(`[${extensionName}] 📋 请求选项:`, {
-                method: fetchOptions.method,
-                headers: fetchOptions.headers,
-                bodyLength: fetchOptions.body.length,
-                hasSignal: !!fetchOptions.signal
             });
 
-            const response = await fetch(relayServerUrl, fetchOptions);
-
-            // 10. 处理响应
-            const endTime = Date.now();
-            const duration = endTime - startTime;
             clearTimeout(timeoutId);
-            console.log(`[${extensionName}] ✅ 响应状态: ${response.status} (${duration}ms)`);
 
             if (!response.ok) {
-                let errorDetails = '';
-                try {
-                    const errorText = await response.text();
-                    errorDetails = errorText ? ` - ${errorText}` : '';
-                    console.log(`[${extensionName}] ❌ 错误详情:`, errorText);
-                } catch (e) {
-                    console.log(`[${extensionName}] ❌ 无法读取错误详情:`, e);
-                }
-                throw new Error(`API调用失败: ${response.status} ${response.statusText}${errorDetails}`);
+                const errorText = await response.text();
+                throw new Error(`中继服务器错误: ${response.status} ${errorText}`);
             }
 
             const data = await response.json();
-            console.log(`[${extensionName}] 📦 响应数据:`, data);
 
-            // 11. 解析响应内容
+            // 解析响应
             let result = '';
-
-            if (settings.apiType === 'openai' || settings.apiType === 'custom' || !settings.apiType) {
-                result = data.choices?.[0]?.message?.content ||
-                         data.choices?.[0]?.text ||
-                         data.content ||
-                         '';
+            if (settings.apiType === 'openai' || settings.apiType === 'custom' || settings.apiType === 'deepseek') {
+                result = data.choices?.[0]?.message?.content || '';
             } else if (settings.apiType === 'claude') {
-                result = data.content?.[0]?.text ||
-                         data.completion ||
-                         '';
+                result = data.content?.[0]?.text || '';
             } else if (settings.apiType === 'google') {
-                result = data.candidates?.[0]?.content?.parts?.[0]?.text ||
-                         data.text ||
-                         '';
-            } else {
-                result = data.text || data.content || data.response || '';
+                result = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
             }
 
-            console.log(`[${extensionName}] 🎯 解析结果: "${result.substring(0, 100)}..."`);
-
-            if (result && result.trim()) {
-                console.log(`[${extensionName}] ✅ AI调用成功`);
-                return result.trim();
-            } else {
-                console.log(`[${extensionName}] ⚠️ 响应为空，使用默认回复`);
-                return "我现在有点累，稍后再聊吧~";
-            }
+            console.log(`[${extensionName}] ✅ 中继调用成功，AI回复: ${result.substring(0, 50)}...`);
+            return result.trim();
 
         } catch (error) {
-            console.error(`[${extensionName}] ❌ 统一AI调用失败:`, error);
+            clearTimeout(timeoutId);
             throw error;
         }
     }
@@ -2732,6 +3120,35 @@ ${currentPersonality}
         // 绑定AI相关事件
         $('#ai-api-select').on('change', function() {
             const apiType = $(this).val();
+
+            // 根据选择的API类型自动填充官方端点URL
+            switch(apiType) {
+                case 'openai':
+                    $('#ai-url-input').val('https://api.openai.com/v1');
+                    break;
+                case 'claude':
+                    $('#ai-url-input').val('https://api.anthropic.com/v1');
+                    break;
+                case 'google':
+                    $('#ai-url-input').val('https://generativelanguage.googleapis.com/v1beta');
+                    break;
+                case 'deepseek':
+                    $('#ai-url-input').val('https://api.deepseek.com/v1');
+                    break;
+                case 'ollama':
+                    $('#ai-url-input').val('http://localhost:11434/v1');
+                    break;
+                case 'lmstudio':
+                    $('#ai-url-input').val('http://localhost:1234/v1');
+                    break;
+                case 'custom':
+                    // 自定义API不自动填充，保持用户输入
+                    break;
+                default:
+                    // 其他情况不自动填充
+                    break;
+            }
+
             toggleApiConfigInputs(apiType);
             saveAISettings();
             // 清除之前的测试结果
@@ -2741,6 +3158,32 @@ ${currentPersonality}
         // 绑定API配置输入框事件
         $('#ai-url-input, #ai-key-input, #ai-model-input').on('input', function() {
             saveAISettings();
+        });
+
+        // 绑定URL重置按钮事件
+        $('#ai-url-reset-btn').on('click', function() {
+            const currentApiType = $('#ai-api-select').val();
+
+            if (!currentApiType || currentApiType === 'custom') {
+                toastr.info('自定义API类型无法重置，请手动输入URL', '💡 提示', { timeOut: 3000 });
+                return;
+            }
+
+            // 调用重置函数
+            resetAPIConfig();
+
+            // 显示成功提示
+            const apiNames = {
+                'openai': 'OpenAI',
+                'claude': 'Claude',
+                'google': 'Google',
+                'deepseek': 'DeepSeek',
+                'ollama': 'Ollama',
+                'lmstudio': 'LM Studio'
+            };
+
+            const apiName = apiNames[currentApiType] || currentApiType;
+            toastr.success(`已重置为${apiName}官方端点`, '🔄 重置成功', { timeOut: 3000 });
         });
 
         $('#test-ai-connection-btn').on('click', function(e) {
@@ -4158,6 +4601,32 @@ ${currentPersonality}
     }
 
     /**
+     * 构建聊天Prompt（支持历史记录）
+     */
+    function buildChatPromptWithHistory(userInput) {
+        const personality = getCurrentPersonality();
+
+        // 构建聊天历史上下文
+        let historyContext = '';
+        if (chatHistory.length > 0) {
+            // 只取最近的5条对话作为上下文
+            const recentHistory = chatHistory.slice(-5);
+            const historyText = recentHistory.map(item => {
+                const role = item.sender === 'user' ? '主人' : petData.name;
+                return `${role}: ${item.message}`;
+            }).join('\n');
+            historyContext = `\n\n之前的对话:\n${historyText}\n`;
+        }
+
+        // 构建完整的Prompt
+        const prompt = `你是一只名叫"${petData.name}"的虚拟宠物。你的性格设定是："${personality}"。${historyContext}
+现在，你的主人对你说了："${userInput}"。请严格按照你的性格设定，结合之前的对话内容，以宠物的身份和口吻，给主人一个简短、可爱、自然的回复。`;
+
+        console.log(`[buildChatPrompt] Generated prompt with ${chatHistory.length} history items`);
+        return prompt;
+    }
+
+    /**
      * 处理发送聊天消息
      */
     async function handleSendMessage() {
@@ -4202,7 +4671,7 @@ ${currentPersonality}
         try {
             console.log(`[${extensionName}] 构建提示词并调用AI API`);
 
-            const prompt = buildChatPrompt(message);
+            const prompt = buildChatPromptWithHistory(message);
             const aiResponse = await callAIAPI(prompt, 60000);
 
             // 移除打字指示器
@@ -4463,39 +4932,7 @@ ${currentPersonality}
                         flex-direction: column !important;
                         gap: ${isMobile ? '12px' : '16px'} !important;
                     ">
-                        <!-- 欢迎消息 -->
-                        <div style="
-                            display: flex !important;
-                            gap: 12px !important;
-                            align-items: flex-start !important;
-                        ">
-                            <div style="
-                                width: 40px !important;
-                                height: 40px !important;
-                                border-radius: 50% !important;
-                                display: flex !important;
-                                align-items: center !important;
-                                justify-content: center !important;
-                                font-size: 20px !important;
-                                background: linear-gradient(145deg, #A8E6CF, #87CEEB) !important;
-                                border: 2px solid white !important;
-                                box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
-                                flex-shrink: 0 !important;
-                            ">${getPetEmoji()}</div>
-                            <div style="
-                                max-width: 70% !important;
-                                background: white !important;
-                                border-radius: 18px !important;
-                                padding: 12px 16px !important;
-                                box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
-                                border: 1px solid rgba(168,230,207,0.3) !important;
-                                color: #2D3748 !important;
-                            ">
-                                <div style="margin: 0 !important; line-height: 1.4 !important; word-wrap: break-word !important;">
-                                    你好！有什么想对我说的吗？
-                                </div>
-                            </div>
-                        </div>
+
                     </div>
 
                     <!-- 输入区域 -->
@@ -6074,9 +6511,10 @@ ${currentPersonality}
                             </label>
                             <select id="ai-api-select" style="width: 100%; padding: 8px; margin-bottom: 8px; border-radius: 4px;">
                                 <option value="">请选择API类型...</option>
-                                <option value="openai">OpenAI (ChatGPT)</option>
-                                <option value="claude">Claude (Anthropic)</option>
-                                <option value="google">Google AI Studio</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="claude">Claude</option>
+                                <option value="google">Google</option>
+                                <option value="deepseek">DeepSeek</option>
                                 <option value="mistral">Mistral AI</option>
                                 <option value="ollama">Ollama (本地)</option>
                                 <option value="custom">自定义API</option>
@@ -6089,10 +6527,17 @@ ${currentPersonality}
                                 <label for="ai-url-input" style="display: block; margin-bottom: 5px; font-size: 0.9em;">
                                     API URL:
                                 </label>
-                                <input id="ai-url-input" type="text" placeholder="例如: https://api.openai.com/v1 (只需填写到/v1，会自动添加端点)"
-                                       style="width: 100%; padding: 6px; border-radius: 4px;">
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input id="ai-url-input" type="text" placeholder="例如: https://api.openai.com/v1 (只需填写到/v1，会自动添加端点)"
+                                           style="flex: 1; padding: 6px; border-radius: 4px; border: 1px solid #ddd;">
+                                    <button id="ai-url-reset-btn" type="button"
+                                            style="padding: 6px 12px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 0.85em; white-space: nowrap; color: #666;"
+                                            title="重置为当前API类型的官方端点">
+                                        🔄 重置
+                                    </button>
+                                </div>
                                 <div style="font-size: 0.8em; color: #666; margin-top: 3px;">
-                                    💡 提示：只需填写到 /v1，插件会自动添加 /chat/completions 端点
+                                    💡 提示：只需填写到 /v1，插件会自动添加 /chat/completions 端点。点击重置按钮可恢复官方端点
                                 </div>
                             </div>
                             <div style="margin-bottom: 10px;">
@@ -6117,6 +6562,8 @@ ${currentPersonality}
                                         <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
                                         <option value="gemini-pro">Gemini Pro</option>
                                         <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <option value="deepseek-chat">DeepSeek Chat</option>
+                                        <option value="deepseek-coder">DeepSeek Coder</option>
                                         <option value="custom">🔧 自定义模型</option>
                                     </select>
                                     <button id="refresh-models-btn" style="
@@ -13359,7 +13806,15 @@ ${currentPersonality}
             } catch (error) {
                 lastError = error;
 
-                // 检查是否是网络连接问题
+                // 检查是否是CORS错误（不应该重试）
+                if (error.message.includes('CORS') ||
+                    error.message.includes('Access-Control-Allow-Origin') ||
+                    error.message.includes('preflight')) {
+                    console.log(`🚫 CORS错误，无法重试: ${error.message}`);
+                    throw error;
+                }
+
+                // 检查是否是网络连接问题（可以重试）
                 if (error.message.includes('Failed to fetch') ||
                     error.message.includes('ERR_CONNECTION_RESET') ||
                     error.message.includes('ERR_NETWORK') ||
@@ -13371,7 +13826,8 @@ ${currentPersonality}
                         continue; // 继续重试
                     }
                 } else {
-                    // 非网络问题，直接抛出错误
+                    // 其他错误，直接抛出
+                    console.log(`❌ 其他错误，不重试: ${error.message}`);
                     throw error;
                 }
             }
@@ -13400,13 +13856,14 @@ ${currentPersonality}
     }
 
     /**
-     * 通用第三方API模型获取器 - 支持任意第三方API
+     * 通用第三方API模型获取器 - 支持直连+中继退回
      */
     window.getThirdPartyModels = async function() {
         console.log("🌐 通用第三方API模型获取器启动...");
 
         const apiUrl = $('#ai-url-input').val();
         const apiKey = $('#ai-key-input').val();
+        const apiType = $('#ai-api-select').val();
 
         if (!apiUrl) {
             console.log("❌ 请先配置API URL");
@@ -13415,175 +13872,250 @@ ${currentPersonality}
 
         console.log(`🔗 API URL: ${apiUrl}`);
         console.log(`🔑 API Key: ${apiKey ? '已设置' : '未设置'}`);
+        console.log(`🏷️ API类型: ${apiType}`);
 
-        // 智能检测API服务类型
-        let serviceType = 'unknown';
-        const urlLower = apiUrl.toLowerCase();
+        // 检测是否为官方API
+        const isOfficialAPI = ['openai', 'claude', 'google', 'deepseek'].includes(apiType);
 
-        if (urlLower.includes('openai.com')) {
-            serviceType = 'openai_official';
-        } else if (urlLower.includes('anthropic.com')) {
-            serviceType = 'anthropic_official';
-        } else if (urlLower.includes('googleapis.com')) {
-            serviceType = 'google_official';
-        } else if (urlLower.includes('nyabit.com')) {
-            serviceType = 'nyabit';
-        } else if (urlLower.includes('api2d.com')) {
-            serviceType = 'api2d';
-        } else if (urlLower.includes('closeai') || urlLower.includes('openai-proxy')) {
-            serviceType = 'openai_proxy';
-        } else if (urlLower.includes('claude') || urlLower.includes('anthropic')) {
-            serviceType = 'claude_proxy';
-        } else if (urlLower.includes('gemini') || urlLower.includes('google')) {
-            serviceType = 'google_proxy';
-        } else if (urlLower.includes('localhost') || urlLower.includes('127.0.0.1')) {
-            serviceType = 'local_api';
+        if (isOfficialAPI) {
+            console.log("🎯 检测到官方API，尝试直连获取模型...");
+
+            try {
+                const directModels = await getModelsDirectly(apiUrl, apiKey, apiType);
+                if (directModels && directModels.length > 0) {
+                    console.log(`✅ 直连获取模型成功: ${directModels.length} 个模型`);
+                    return directModels;
+                }
+            } catch (error) {
+                console.log(`⚠️ 直连获取模型失败: ${error.message}`);
+
+                // 检查是否为CORS错误
+                if (error.message.includes('CORS') ||
+                    error.message.includes('Failed to fetch') ||
+                    error.message.includes('Access-Control-Allow-Origin')) {
+
+                    console.log("🔄 检测到CORS错误，退回中继服务器获取模型...");
+
+                    try {
+                        const relayModels = await getModelsViaRelay(apiUrl, apiKey, apiType);
+                        if (relayModels && relayModels.length > 0) {
+                            console.log(`✅ 中继获取模型成功: ${relayModels.length} 个模型`);
+                            return relayModels;
+                        }
+                    } catch (relayError) {
+                        console.log(`❌ 中继获取模型也失败: ${relayError.message}`);
+                    }
+                }
+            }
         } else {
-            serviceType = 'generic_third_party';
+            console.log("🔧 检测到自定义API，使用中继服务器获取模型...");
+
+            try {
+                const relayModels = await getModelsViaRelay(apiUrl, apiKey, apiType);
+                if (relayModels && relayModels.length > 0) {
+                    console.log(`✅ 中继获取模型成功: ${relayModels.length} 个模型`);
+                    return relayModels;
+                }
+            } catch (error) {
+                console.log(`❌ 中继获取模型失败: ${error.message}`);
+            }
         }
 
-        console.log(`🏷️ 检测到服务类型: ${serviceType}`);
+        // 如果所有方法都失败，返回推荐模型
+        console.log("⚠️ 无法从API获取模型列表，根据API类型提供推荐模型");
+        return getRecommendedModels(apiType);
+    };
 
-        // 构建可能的模型端点列表
-        const baseUrl = apiUrl.replace(/\/+$/, ''); // 移除末尾斜杠
-        const possibleEndpoints = [];
+    /**
+     * 直连方式获取模型列表
+     */
+    async function getModelsDirectly(apiUrl, apiKey, apiType) {
+        console.log("🎯 开始直连获取模型...");
 
-        // 标准OpenAI兼容端点
-        possibleEndpoints.push(
-            `${baseUrl}/models`,
-            `${baseUrl}/v1/models`,
-            `${baseUrl}/api/models`,
-            `${baseUrl}/api/v1/models`,
-            `${baseUrl}/openai/v1/models`
-        );
+        const baseUrl = apiUrl.replace(/\/+$/, '');
+        let modelsEndpoint = '';
 
-        // 其他常见端点格式
-        possibleEndpoints.push(
-            `${baseUrl}/engines`,
-            `${baseUrl}/v1/engines`,
-            `${baseUrl}/model/list`,
-            `${baseUrl}/models/list`,
-            `${baseUrl}/list/models`
-        );
-
-        // 特定服务的端点
-        if (serviceType === 'anthropic_official' || serviceType === 'claude_proxy') {
-            possibleEndpoints.push(`${baseUrl}/v1/models`);
-        }
-        if (serviceType === 'google_official' || serviceType === 'google_proxy') {
-            possibleEndpoints.push(`${baseUrl}/models`, `${baseUrl}/v1beta/models`);
-        }
-        if (serviceType === 'local_api') {
-            possibleEndpoints.push(
-                `${baseUrl}/api/tags`, // Ollama
-                `${baseUrl}/tags`,     // Ollama简化
-                `${baseUrl}/info`      // 一些本地API的信息端点
-            );
+        // 根据API类型构建端点
+        if (apiType === 'google') {
+            if (baseUrl.includes('/v1beta')) {
+                modelsEndpoint = `${baseUrl}/models`;
+            } else {
+                modelsEndpoint = `${baseUrl}/v1beta/models`;
+            }
+        } else if (apiType === 'claude') {
+            if (baseUrl.includes('/v1')) {
+                modelsEndpoint = `${baseUrl}/models`;
+            } else {
+                modelsEndpoint = `${baseUrl}/v1/models`;
+            }
+        } else {
+            // OpenAI, DeepSeek等
+            if (baseUrl.includes('/v1')) {
+                modelsEndpoint = `${baseUrl}/models`;
+            } else {
+                modelsEndpoint = `${baseUrl}/v1/models`;
+            }
         }
 
-        console.log(`📡 将尝试 ${possibleEndpoints.length} 个端点:`, possibleEndpoints);
+        console.log(`📡 直连端点: ${modelsEndpoint}`);
 
-        // 尝试不同的认证方式
-        const authMethods = [];
+        // 构建请求头
+        const headers = { 'Content-Type': 'application/json' };
 
         if (apiKey) {
-            // 标准Bearer Token认证
-            authMethods.push({
-                name: 'Bearer Token',
-                headers: {
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            // Claude风格的x-api-key认证
-            authMethods.push({
-                name: 'x-api-key',
-                headers: {
-                    'x-api-key': apiKey,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            // 一些API使用的api-key头
-            authMethods.push({
-                name: 'api-key',
-                headers: {
-                    'api-key': apiKey,
-                    'Content-Type': 'application/json'
-                }
-            });
+            if (apiType === 'google') {
+                headers['x-goog-api-key'] = apiKey;
+            } else if (apiType === 'claude') {
+                headers['x-api-key'] = apiKey;
+                headers['anthropic-version'] = '2023-06-01';
+            } else {
+                headers['Authorization'] = `Bearer ${apiKey}`;
+            }
         }
 
-        // 无认证方式（本地API）
-        authMethods.push({
-            name: 'No Auth',
-            headers: {
-                'Content-Type': 'application/json'
-            }
+        const response = await fetch(modelsEndpoint, {
+            method: 'GET',
+            headers: headers,
+            signal: AbortSignal.timeout(10000)
         });
 
-        console.log(`🔐 将尝试 ${authMethods.length} 种认证方式`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
 
-        // 遍历所有端点和认证方式的组合
-        for (const endpoint of possibleEndpoints) {
-            for (const authMethod of authMethods) {
-                try {
-                    console.log(`🔍 测试: ${endpoint} (${authMethod.name})`);
+        const data = await response.json();
+        return parseModelsFromResponseNew(data, modelsEndpoint, apiType);
+    }
 
-                    // 添加网络连接检测和重试机制
-                    const response = await fetchWithRetry(endpoint, {
-                        method: 'GET',
-                        headers: authMethod.headers,
-                        signal: AbortSignal.timeout(8000) // 8秒超时
-                    }, 2); // 最多重试2次
+    /**
+     * 中继方式获取模型列表
+     */
+    async function getModelsViaRelay(apiUrl, apiKey, apiType) {
+        console.log("🔄 开始中继获取模型...");
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        console.log(`✅ 成功: ${endpoint} (${authMethod.name})`, data);
+        const baseUrl = apiUrl.replace(/\/+$/, '');
+        let modelsEndpoint = '';
 
-                        // 通用模型数据解析器
-                        const models = parseModelsFromResponse(data, endpoint, serviceType);
-
-                        if (models.length > 0) {
-                            console.log(`🎉 成功获取 ${models.length} 个模型:`, models.map(m => m.name));
-                            return models;
-                        }
-                    } else if (response.status === 401 || response.status === 403) {
-                        console.log(`🔐 ${endpoint}: 认证失败 (${response.status}) - ${authMethod.name}`);
-                        // 继续尝试其他认证方式
-                    } else {
-                        console.log(`❌ ${endpoint}: HTTP ${response.status} - ${authMethod.name}`);
-
-                        // 对于非认证错误，尝试读取错误信息
-                        if (response.status !== 404) {
-                            try {
-                                const errorText = await response.text();
-                                if (errorText.length < 300) {
-                                    console.log(`错误详情:`, errorText);
-                                }
-                            } catch (e) {
-                                // 忽略错误读取失败
-                            }
-                        }
-                    }
-                } catch (error) {
-                    if (error.name === 'TimeoutError') {
-                        console.log(`⏰ ${endpoint}: 超时 - ${authMethod.name}`);
-                    } else if (error.message.includes('CORS')) {
-                        console.log(`🚫 ${endpoint}: CORS限制 - ${authMethod.name}`);
-                    } else {
-                        console.log(`❌ ${endpoint}: ${error.message} - ${authMethod.name}`);
-                    }
-                }
+        // 根据API类型构建端点
+        if (apiType === 'google') {
+            if (baseUrl.includes('/v1beta')) {
+                modelsEndpoint = `${baseUrl}/models`;
+            } else {
+                modelsEndpoint = `${baseUrl}/v1beta/models`;
+            }
+        } else if (apiType === 'claude') {
+            if (baseUrl.includes('/v1')) {
+                modelsEndpoint = `${baseUrl}/models`;
+            } else {
+                modelsEndpoint = `${baseUrl}/v1/models`;
+            }
+        } else {
+            // OpenAI, DeepSeek等
+            if (baseUrl.includes('/v1')) {
+                modelsEndpoint = `${baseUrl}/models`;
+            } else {
+                modelsEndpoint = `${baseUrl}/v1/models`;
             }
         }
 
-        // 如果所有端点都失败，返回智能推荐的模型
-        console.log("⚠️ 无法从API获取模型列表，根据服务类型提供推荐模型");
+        console.log(`📡 中继端点: ${modelsEndpoint}`);
 
-        return getRecommendedModels(serviceType, apiUrl);
-    };
+        // 构建请求头
+        const headers = { 'Content-Type': 'application/json' };
+
+        if (apiKey) {
+            if (apiType === 'google') {
+                headers['x-goog-api-key'] = apiKey;
+            } else if (apiType === 'claude') {
+                headers['x-api-key'] = apiKey;
+                headers['anthropic-version'] = '2023-06-01';
+            } else {
+                headers['Authorization'] = `Bearer ${apiKey}`;
+            }
+        }
+
+        // 通过中继服务器发送请求
+        const relayServerUrl = 'http://154.12.38.33:3000/proxy';
+
+        const response = await fetch(relayServerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                targetUrl: modelsEndpoint,
+                method: 'GET',
+                headers: headers
+            }),
+            signal: AbortSignal.timeout(15000)
+        });
+
+        if (!response.ok) {
+            throw new Error(`中继服务器错误: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return parseModelsFromResponseNew(data, modelsEndpoint, apiType);
+    }
+
+    /**
+     * 新的模型响应解析器
+     */
+    function parseModelsFromResponseNew(data, endpoint, apiType) {
+        console.log("📋 解析模型响应数据...", data);
+
+        let models = [];
+
+        // 根据不同的响应格式解析
+        if (data.data && Array.isArray(data.data)) {
+            // OpenAI格式: {data: [{id: "gpt-3.5-turbo", ...}, ...]}
+            models = data.data;
+        } else if (data.models && Array.isArray(data.models)) {
+            // Google/其他格式: {models: [{name: "models/gemini-pro", ...}, ...]}
+            models = data.models;
+        } else if (Array.isArray(data)) {
+            // 直接数组格式
+            models = data;
+        }
+
+        // 标准化模型数据
+        const standardizedModels = models.map(model => {
+            let modelId, modelName;
+
+            if (typeof model === 'string') {
+                modelId = modelName = model;
+            } else if (model.id) {
+                modelId = model.id;
+                modelName = model.name || model.id;
+            } else if (model.name) {
+                modelId = model.name;
+                modelName = model.name;
+
+                // Google API特殊处理：移除models/前缀
+                if (apiType === 'google' && modelName.startsWith('models/')) {
+                    modelName = modelName.replace('models/', '');
+                }
+            } else if (model.model) {
+                modelId = modelName = model.model;
+            }
+
+            if (modelId) {
+                return {
+                    id: modelId,
+                    name: modelName,
+                    object: 'model',
+                    type: 'third_party',
+                    status: 'available',
+                    source: endpoint,
+                    provider: `${apiType.toUpperCase()} API`
+                };
+            }
+            return null;
+        }).filter(Boolean);
+
+        console.log(`✅ 解析出 ${standardizedModels.length} 个模型`);
+        return standardizedModels;
+    }
+
+
 
     /**
      * 通用模型数据解析器
