@@ -377,10 +377,10 @@ jQuery(async () => {
         type: "cat", // cat, dog, dragon, etc.
         level: 1,
         experience: 0,
-        health: 100,     // 初始健康，无压力开局
-        happiness: 30,   // 保持较低值以鼓励互动
-        hunger: 40,      // 保持较低值以鼓励互动
-        energy: 45,      // 保持较低值以鼓励互动
+        health: 35,      // 初始值，首次打开会随机化到50以下
+        happiness: 30,   // 初始值，首次打开会随机化到50以下
+        hunger: 40,      // 初始值，首次打开会随机化到50以下
+        energy: 45,      // 初始值，首次打开会随机化到50以下
 
         // 拓麻歌子式生命状态
         lifeStage: "baby",    // baby, child, teen, adult, senior
@@ -412,79 +412,7 @@ jQuery(async () => {
         // AI人设系统
         personality: '',              // 当前人设内容
 
-        // 首次互动激活机制
-        hasInteracted: false,         // 新增：用于跟踪首次互动
-
-        dataVersion: 4.1 // 数据版本标记 - 升级到4.1表示首次互动激活机制
-    };
-
-    /**
-     * 🧪 测试宠物状态系统大修
-     */
-    window.testPetStatusSystemFix = function() {
-        console.log('🧪 测试宠物状态系统大修...');
-
-        console.log('\n📊 当前宠物状态:');
-        console.log(`- 健康: ${petData.health}/100`);
-        console.log(`- 快乐: ${petData.happiness}/100`);
-        console.log(`- 饱食: ${petData.hunger}/100`);
-        console.log(`- 精力: ${petData.energy}/100`);
-        console.log(`- 首次互动: ${petData.hasInteracted ? '已激活' : '未激活'}`);
-        console.log(`- 数据版本: ${petData.dataVersion}`);
-
-        console.log('\n🔧 测试激活机制:');
-        if (!petData.hasInteracted) {
-            console.log('✅ 宠物处于宽限期，数值不会衰减');
-            console.log('💡 进行任何互动（喂食、玩耍、抱抱）将激活衰减系统');
-        } else {
-            console.log('✅ 宠物已激活，衰减系统正常运行');
-            const timeSinceLastUpdate = Date.now() - (petData.lastUpdateTime || Date.now());
-            const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
-            console.log(`⏰ 距离上次更新: ${hoursElapsed.toFixed(2)} 小时`);
-        }
-
-        console.log('\n🧪 测试命令:');
-        console.log('- feedPet() - 喂食（会激活衰减系统）');
-        console.log('- playWithPet() - 玩耍（会激活衰减系统）');
-        console.log('- hugPet() - 抱抱（会激活衰减系统）');
-        console.log('- updatePetStatus() - 手动更新状态（只有激活后才会衰减）');
-
-        return {
-            hasInteracted: petData.hasInteracted,
-            health: petData.health,
-            dataVersion: petData.dataVersion,
-            systemFixed: true
-        };
-    };
-
-    /**
-     * 🎉 宠物状态系统大修完成总结
-     */
-    window.showSystemFixSummary = function() {
-        console.log('🎉 宠物状态系统大修完成！');
-        console.log('\n✅ 已修复的问题:');
-        console.log('1. 时间系统核心Bug - 移除了savePetData中错误的lastUpdateTime更新');
-        console.log('2. 实现首次互动激活机制 - 新用户享受宽限期');
-        console.log('3. 优化新用户体验 - 初始健康值设为100');
-
-        console.log('\n🔧 修改内容:');
-        console.log('- petData.health: 35 → 100 (无压力开局)');
-        console.log('- 新增 petData.hasInteracted: false (激活标志)');
-        console.log('- 数据版本: 4.0 → 4.1');
-        console.log('- updatePetStatus() 添加激活检查');
-        console.log('- 所有互动函数添加激活逻辑');
-
-        console.log('\n🎮 用户体验:');
-        console.log('- 新用户: 宠物健康100，数值不会下降，直到首次互动');
-        console.log('- 首次互动: 显示欢迎消息，激活衰减系统');
-        console.log('- 激活后: 正常的时间衰减机制开始工作');
-
-        console.log('\n🧪 测试方法:');
-        console.log('- testPetStatusSystemFix() - 查看当前状态');
-        console.log('- 清除localStorage重新加载页面测试新用户体验');
-        console.log('- 进行互动观察激活消息和衰减开始');
-
-        return '🎉 宠物状态系统大修完成！';
+        dataVersion: 4.0 // 数据版本标记 - 升级到4.0表示拓麻歌子系统
     };
 
     // -----------------------------------------------------------------
@@ -1941,21 +1869,339 @@ jQuery(async () => {
 
 
 
+    /**
+     * 🔧 检查和修复悬浮按钮
+     */
+    window.checkFloatingButton = function() {
+        console.log('🔧 检查悬浮按钮状态...');
 
+        // 1. 检查按钮是否存在
+        const button = $(`#${BUTTON_ID}`);
+        console.log(`按钮存在: ${button.length > 0 ? '✅' : '❌'}`);
 
+        if (button.length === 0) {
+            console.log('🔄 按钮不存在，尝试重新创建...');
 
+            // 检查插件是否启用
+            const isEnabled = localStorage.getItem(STORAGE_KEY_ENABLED) !== "false";
+            console.log(`插件启用状态: ${isEnabled ? '✅' : '❌'}`);
 
+            if (isEnabled) {
+                initializeFloatingButton();
 
+                // 再次检查
+                setTimeout(() => {
+                    const newButton = $(`#${BUTTON_ID}`);
+                    console.log(`重新创建结果: ${newButton.length > 0 ? '✅ 成功' : '❌ 失败'}`);
 
+                    if (newButton.length > 0) {
+                        console.log('✅ 悬浮按钮已恢复！');
+                    } else {
+                        console.log('❌ 悬浮按钮创建失败，请刷新页面');
+                    }
+                }, 100);
+            } else {
+                console.log('❌ 插件已禁用，请在设置中启用');
+            }
+        } else {
+            console.log('✅ 悬浮按钮正常存在');
 
+            // 检查按钮样式
+            const styles = button[0].style;
+            console.log('按钮样式:', {
+                position: styles.position,
+                display: styles.display,
+                visibility: styles.visibility,
+                zIndex: styles.zIndex
+            });
+        }
+    };
 
+    /**
+     * 🔍 检查AI调用函数的实际内容
+     */
+    window.debugAIFunctions = function() {
+        console.log('🔍 检查AI调用函数的实际内容...');
 
+        // 检查 callAIAPI 函数
+        if (typeof callAIAPI === 'function') {
+            console.log('📋 callAIAPI 函数源码:');
+            console.log(callAIAPI.toString());
+        } else {
+            console.log('❌ callAIAPI 函数不存在');
+        }
 
+        // 检查 callCustomAPI 函数
+        if (typeof callCustomAPI === 'function') {
+            console.log('📋 callCustomAPI 函数源码:');
+            console.log(callCustomAPI.toString());
+        } else {
+            console.log('❌ callCustomAPI 函数不存在');
+        }
 
+        // 检查 callAI 函数
+        if (typeof callAI === 'function') {
+            console.log('📋 callAI 函数源码 (前100字符):');
+            console.log(callAI.toString().substring(0, 200) + '...');
+        } else {
+            console.log('❌ callAI 函数不存在');
+        }
+    };
 
+    /**
+     * 🧪 测试直连+中继退回逻辑
+     */
+    window.testDirectConnection = function() {
+        console.log('🧪 测试直连+中继退回逻辑...');
 
+        const settings = loadAISettings();
+        if (!settings.apiType || !settings.apiUrl || !settings.apiKey) {
+            console.log('❌ 请先配置API设置');
+            return;
+        }
 
+        console.log(`📋 当前配置: ${settings.apiType} | ${settings.apiUrl}`);
 
+        const isOfficialAPI = ['openai', 'claude', 'google', 'deepseek'].includes(settings.apiType);
+        const isCustomAPI = settings.apiType === 'custom';
+
+        if (isOfficialAPI) {
+            console.log('✅ 官方API - 将尝试直连，失败时退回中继');
+        } else if (isCustomAPI) {
+            console.log('🔧 自定义API - 将尝试直连，失败时退回中继');
+        } else {
+            console.log('❓ 未知API类型');
+        }
+
+        console.log('\n🚀 发送测试请求...');
+        callAI('请简单回复"测试成功"', 10000).then(response => {
+            console.log('✅ 测试成功，AI回复:', response);
+        }).catch(error => {
+            console.log('❌ 测试失败:', error.message);
+        });
+    };
+
+    /**
+     * 🧪 测试自定义API的直连+中继退回功能
+     */
+    window.testCustomAPIConnection = function() {
+        console.log('🧪 测试自定义API的直连+中继退回功能...');
+
+        const settings = loadAISettings();
+        if (settings.apiType !== 'custom') {
+            console.log('❌ 请先将API类型设置为"自定义API"');
+            return;
+        }
+
+        if (!settings.apiUrl || !settings.apiKey) {
+            console.log('❌ 请先配置自定义API的URL和密钥');
+            return;
+        }
+
+        console.log(`📋 自定义API配置:`);
+        console.log(`   URL: ${settings.apiUrl}`);
+        console.log(`   模型: ${settings.apiModel || '默认'}`);
+        console.log(`   密钥: ${settings.apiKey ? '已设置' : '未设置'}`);
+
+        console.log('\n🎯 开始测试自定义API连接策略...');
+        console.log('1️⃣ 首先尝试直连自定义API');
+        console.log('2️⃣ 如果直连失败，将自动退回中继服务器');
+
+        const testPrompt = '请简单回复"自定义API测试成功"，不超过10个字。';
+
+        callAI(testPrompt, 15000).then(response => {
+            console.log('✅ 自定义API测试成功！');
+            console.log(`📝 AI回复: ${response}`);
+            toastr.success(`自定义API测试成功！AI回复: ${response.substring(0, 50)}`, '🔧 自定义API');
+        }).catch(error => {
+            console.log('❌ 自定义API测试失败:', error.message);
+            toastr.error(`自定义API测试失败: ${error.message}`, '❌ 测试失败');
+        });
+    };
+
+    /**
+     * 🧪 测试模型获取（直连+中继退回）
+     */
+    window.testModelFetch = async function() {
+        console.log('🧪 测试模型获取功能...');
+
+        try {
+            console.log('📋 当前API配置:');
+            console.log(`  类型: ${$('#ai-api-select').val()}`);
+            console.log(`  URL: ${$('#ai-url-input').val()}`);
+            console.log(`  密钥: ${$('#ai-key-input').val() ? '已设置' : '未设置'}`);
+
+            console.log('\n🚀 开始获取模型列表...');
+            const models = await getThirdPartyModels();
+
+            if (models && models.length > 0) {
+                console.log(`✅ 成功获取 ${models.length} 个模型:`);
+                models.forEach((model, index) => {
+                    console.log(`  ${index + 1}. ${model.name} (${model.id})`);
+                });
+
+                // 更新UI中的模型下拉框
+                const modelSelect = $('#ai-model-input');
+                if (modelSelect.length > 0) {
+                    const currentValue = modelSelect.val();
+                    modelSelect.empty();
+
+                    models.forEach(model => {
+                        modelSelect.append(`<option value="${model.id}">${model.name}</option>`);
+                    });
+
+                    // 尝试恢复之前的选择
+                    if (currentValue && models.find(m => m.id === currentValue)) {
+                        modelSelect.val(currentValue);
+                    }
+
+                    console.log('✅ 模型下拉框已更新');
+                }
+
+            } else {
+                console.log('⚠️ 未获取到任何模型');
+            }
+
+        } catch (error) {
+            console.error('❌ 模型获取测试失败:', error);
+        }
+
+        console.log('✅ 模型获取测试完成');
+    };
+
+    /**
+     * 🧪 测试Google API URL构建
+     */
+    window.testGoogleURLBuild = function() {
+        console.log('🧪 测试Google API URL构建...');
+
+        const testCases = [
+            {
+                baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+                model: 'gemini-pro',
+                expected: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent'
+            },
+            {
+                baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+                model: 'models/gemini-pro',
+                expected: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent'
+            },
+            {
+                baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+                model: 'gemini-2.5-pro',
+                expected: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent'
+            }
+        ];
+
+        testCases.forEach((testCase, index) => {
+            let targetApiUrl = testCase.baseUrl;
+            let modelName = testCase.model;
+
+            // 应用相同的逻辑
+            if (modelName.startsWith('models/')) {
+                modelName = modelName.replace('models/', '');
+            }
+
+            if (targetApiUrl.endsWith('/v1beta')) {
+                targetApiUrl += `/models/${modelName}:generateContent`;
+            }
+
+            const success = targetApiUrl === testCase.expected;
+            console.log(`测试 ${index + 1}: ${success ? '✅' : '❌'}`);
+            console.log(`  输入: ${testCase.baseUrl} + ${testCase.model}`);
+            console.log(`  期望: ${testCase.expected}`);
+            console.log(`  实际: ${targetApiUrl}`);
+            console.log('');
+        });
+
+        console.log('✅ Google API URL构建测试完成');
+    };
+
+    /**
+     * 🔧 重置API配置
+     */
+    window.resetAPIConfig = function() {
+        console.log('🔧 重置API配置...');
+
+        // 获取当前选择的API类型
+        const currentApiType = $('#ai-api-select').val();
+        console.log(`当前API类型: ${currentApiType}`);
+
+        // 强制重新填入正确的URL
+        switch(currentApiType) {
+            case 'openai':
+                $('#ai-url-input').val('https://api.openai.com/v1');
+                console.log('✅ 重置为OpenAI官方端点');
+                break;
+            case 'claude':
+                $('#ai-url-input').val('https://api.anthropic.com/v1');
+                console.log('✅ 重置为Claude官方端点');
+                break;
+            case 'google':
+                $('#ai-url-input').val('https://generativelanguage.googleapis.com/v1beta');
+                console.log('✅ 重置为Google官方端点');
+                break;
+            case 'deepseek':
+                $('#ai-url-input').val('https://api.deepseek.com/v1');
+                console.log('✅ 重置为DeepSeek官方端点');
+                break;
+            case 'ollama':
+                $('#ai-url-input').val('http://localhost:11434/v1');
+                console.log('✅ 重置为Ollama默认端点');
+                break;
+            case 'lmstudio':
+                $('#ai-url-input').val('http://localhost:1234/v1');
+                console.log('✅ 重置为LM Studio默认端点');
+                break;
+            default:
+                console.log('❓ 未知API类型，无法重置');
+                break;
+        }
+
+        // 保存设置
+        saveAISettings();
+        console.log('✅ API配置已重置并保存');
+    };
+
+    /**
+     * 🧪 测试自动填充URL功能
+     */
+    window.testAutoFillURL = function() {
+        console.log('🧪 测试自动填充URL功能...');
+
+        const apiTypes = ['openai', 'claude', 'google', 'deepseek', 'ollama', 'lmstudio', 'custom'];
+        const expectedUrls = {
+            'openai': 'https://api.openai.com/v1',
+            'claude': 'https://api.anthropic.com/v1',
+            'google': 'https://generativelanguage.googleapis.com/v1beta',
+            'deepseek': 'https://api.deepseek.com/v1',
+            'ollama': 'http://localhost:11434/v1',
+            'lmstudio': 'http://localhost:1234/v1',
+            'custom': '不自动填充'
+        };
+
+        console.log('📋 测试各API类型的自动填充...');
+
+        apiTypes.forEach(apiType => {
+            // 模拟选择API类型
+            $('#ai-api-select').val(apiType).trigger('change');
+
+            // 检查URL是否正确填充
+            const currentUrl = $('#ai-url-input').val();
+            const expectedUrl = expectedUrls[apiType];
+
+            if (apiType === 'custom') {
+                console.log(`${apiType}: 保持现有URL (${currentUrl}) ✅`);
+            } else if (currentUrl === expectedUrl) {
+                console.log(`${apiType}: ${currentUrl} ✅`);
+            } else {
+                console.log(`${apiType}: 期望 ${expectedUrl}, 实际 ${currentUrl} ❌`);
+            }
+        });
+
+        console.log('\n✅ 自动填充URL测试完成');
+        console.log('💡 现在切换API类型时应该自动填入对应的官方端点');
+    };
 
     /**
      * 🧪 测试API配置优化
@@ -1993,7 +2239,28 @@ jQuery(async () => {
         console.log('💡 现在API类型名称更简洁，选择后会自动填入官方端点');
     };
 
+    /**
+     * 🧪 简单测试中继服务器连接
+     */
+    window.testRelayServerSimple = function() {
+        console.log('🧪 简单测试中继服务器连接...');
 
+        const relayServerUrl = 'http://154.12.38.33:3000/health';
+
+        console.log(`🌐 测试URL: ${relayServerUrl}`);
+
+        fetch(relayServerUrl, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        }).then(response => {
+            console.log(`✅ 中继服务器响应: ${response.status}`);
+            return response.text();
+        }).then(data => {
+            console.log(`📦 响应内容:`, data);
+        }).catch(error => {
+            console.error(`❌ 中继服务器连接失败:`, error);
+        });
+    };
 
     /**
      * 测试中继服务器连接
@@ -3542,11 +3809,6 @@ ${currentPersonality}
      * 更新宠物状态（基于时间流逝）
      */
     function updatePetStatus() {
-        // 首次互动激活机制 - 只有在用户首次互动后才开始衰减
-        if (!petData.hasInteracted) {
-            return;
-        }
-
         const now = Date.now();
         const timeSinceLastUpdate = now - (petData.lastUpdateTime || now);
         const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
@@ -3569,7 +3831,6 @@ ${currentPersonality}
                 petData.happiness = Math.max(0, petData.happiness - safeHoursElapsed * 0.5);
             }
 
-            // 更新时间戳（只有在实际进行衰减后才更新）
             petData.lastUpdateTime = now;
 
             // 验证并修复数值
@@ -9599,14 +9860,6 @@ ${currentPersonality}
 
         // 重新定义喂食函数 - 拓麻歌子式
         window.feedPet = async function() {
-            // 首次互动激活机制
-            if (!petData.hasInteracted) {
-                petData.hasInteracted = true;
-                petData.lastUpdateTime = Date.now(); // 激活时设置更新时间
-                console.log(`[${extensionName}] 宠物首次互动已激活！衰减系统启动。`);
-                toastr.info('你和宠物的冒险开始啦！要记得常回来看它哦。', '💖 新的开始');
-            }
-
             if (!petData.isAlive) {
                 toastr.error("💀 你的宠物已经死亡，无法喂食...");
                 return;
@@ -9651,14 +9904,6 @@ ${currentPersonality}
 
         // 重新定义玩耍函数 - 拓麻歌子式
         window.playWithPet = async function() {
-            // 首次互动激活机制
-            if (!petData.hasInteracted) {
-                petData.hasInteracted = true;
-                petData.lastUpdateTime = Date.now(); // 激活时设置更新时间
-                console.log(`[${extensionName}] 宠物首次互动已激活！衰减系统启动。`);
-                toastr.info('你和宠物的冒险开始啦！要记得常回来看它哦。', '💖 新的开始');
-            }
-
             if (!petData.isAlive) {
                 toastr.error("💀 你的宠物已经死亡，无法玩耍...");
                 return;
@@ -9735,14 +9980,6 @@ ${currentPersonality}
 
         // 抱抱宠物 - 新的互动方式
         window.hugPet = async function() {
-            // 首次互动激活机制
-            if (!petData.hasInteracted) {
-                petData.hasInteracted = true;
-                petData.lastUpdateTime = Date.now(); // 激活时设置更新时间
-                console.log(`[${extensionName}] 宠物首次互动已激活！衰减系统启动。`);
-                toastr.info('你和宠物的冒险开始啦！要记得常回来看它哦。', '💖 新的开始');
-            }
-
             if (!petData.isAlive) {
                 toastr.error("💀 你的宠物已经死亡，无法抱抱...");
                 return;
