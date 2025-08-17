@@ -1,9 +1,9 @@
 // 虚拟宠物系统 - SillyTavern插件
-console.log("🐾 虚拟宠物系统脚本开始加载...");
+console.log("[VirtualPet] 脚本开始加载...");
 
 // 使用 jQuery 确保在 DOM 加载完毕后执行我们的代码
 jQuery(async () => {
-    console.log("🐾 jQuery ready, 开始初始化...");
+    console.log("[VirtualPet] jQuery ready, 开始初始化...");
 
     // -----------------------------------------------------------------
     // 1. 定义常量和状态变量
@@ -13,12 +13,14 @@ jQuery(async () => {
 
     console.log(`[${extensionName}] Starting initialization...`);
     console.log(`[${extensionName}] Extension folder path: ${extensionFolderPath}`);
-    
+
     // 存储键
     const STORAGE_KEY_BUTTON_POS = "virtual-pet-button-position";
     const STORAGE_KEY_ENABLED = "virtual-pet-enabled";
     const STORAGE_KEY_PET_DATA = "virtual-pet-data";
     const STORAGE_KEY_CUSTOM_AVATAR = "virtual-pet-custom-avatar";
+    const STORAGE_KEY_USER_AVATAR = "virtual-pet-user-avatar";
+    const CHAT_TIP_KEY = "virtual-pet-chat-tip-shown";
 
     // Firebase 相关常量
     const FIREBASE_CONFIG = {
@@ -38,14 +40,14 @@ jQuery(async () => {
         USER_PROFILE: "user_profile",
         CONNECTION_CODES: "connection_codes"
     };
-    
+
     // DOM IDs and Selectors
     const BUTTON_ID = "virtual-pet-button";
     const OVERLAY_ID = "virtual-pet-popup-overlay";
     const POPUP_ID = "virtual-pet-popup";
     const CLOSE_BUTTON_ID = "virtual-pet-popup-close-button";
     const TOGGLE_ID = "#virtual-pet-enabled-toggle";
-    
+
     // DOM 元素引用
     let overlay, mainView, petView, settingsView, chatView;
     let petContainer;
@@ -55,6 +57,7 @@ jQuery(async () => {
 
     // 自定义头像管理
     let customAvatarData = null;
+    let customUserAvatarData = null;
 
     // 同步保存限制机制
     let lastSyncSaveTime = 0;
@@ -82,6 +85,85 @@ jQuery(async () => {
         overlay: 10000,     // 遮罩层
         notification: 10002 // 通知
     };
+
+
+    // 作者信息与水印
+    const AUTHOR_NAME = "一禄柒柒";
+
+
+    // 作者水印：可视徽标 + 复制水印
+    function installAuthorBadge(){
+        if ($('#vp-author-badge').length) return;
+        const $badge = $('<div id="vp-author-badge"/>').text(`作者：${AUTHOR_NAME}`).css({
+            position:'fixed', right:'10px', bottom:'6px', zIndex: SAFE_Z_INDEX.popup,
+            background:'rgba(0,0,0,0.35)', color:'#fff', fontSize:'11px',
+            padding:'2px 6px', borderRadius:'4px', pointerEvents:'none',
+            backdropFilter:'blur(2px)', boxShadow:'0 2px 6px rgba(0,0,0,0.25)'
+        });
+        $('body').append($badge);
+    }
+    function removeAuthorBadge(){ $('#vp-author-badge').remove(); }
+
+    function setupCopyWatermarkProtection(){
+        try{ if (window.__vpCopyHandlerAttached) return; } catch{}
+        const handler = function(e){
+            try{
+                // 仅对插件相关区域的复制加水印，避免影响宿主全局
+                const $target = $(e.target);
+                const inScope = $target.closest('#virtual-pet-popup-overlay,#chat-modal-overlay,#virtual-pet-settings').length>0;
+                if (!inScope) return; // 不在插件DOM内则不处理
+                const sel = window.getSelection();
+                const text = sel && sel.toString();
+                if (!text) return;
+                const url = location.href;
+                const mark = `\n\n—— 复制来源：虚拟宠物系统 · 作者：${AUTHOR_NAME} · ${new Date().toLocaleString()} · ${url}`;
+                e.clipboardData.setData('text/plain', text + mark);
+                // HTML版本（在末尾附加一个淡色小字）
+                const htmlSel = sel ? sel.getRangeAt(0).cloneContents() : null;
+                let html = '';
+                if (htmlSel){ const div = document.createElement('div'); div.appendChild(htmlSel); html = div.innerHTML; }
+                const htmlMark = `<div style="margin-top:8px;font-size:11px;color:#888;opacity:.8;">—— 复制来源：虚拟宠物系统 · 作者：${AUTHOR_NAME}</div>`;
+                e.clipboardData.setData('text/html', html + htmlMark);
+                e.preventDefault();
+            }catch(err){ /* 忽略 */ }
+        };
+        document.addEventListener('copy', handler, true);
+        window.__vpCopyHandlerAttached = true;
+        window.__vpCopyHandler = handler;
+    }
+    function teardownCopyWatermarkProtection(){
+        try{
+            if (window.__vpCopyHandlerAttached && window.__vpCopyHandler){
+                document.removeEventListener('copy', window.__vpCopyHandler, true);
+            }
+        }catch{}
+        window.__vpCopyHandlerAttached = false;
+        window.__vpCopyHandler = null;
+    }
+    function enableAuthorWatermarks(){ installAuthorBadge(); setupCopyWatermarkProtection(); }
+    function disableAuthorWatermarks(){ removeAuthorBadge(); teardownCopyWatermarkProtection(); }
+
+    // ============ 初始化管线（第一阶段：守护 + 悬浮按钮优先） ============
+    function tryGuard(name, fn){
+        try { return fn(); } catch(e){ console.warn(`[${extensionName}] [init-guard] ${name} failed:`, e); return null; }
+    }
+
+    function getRuntimeSettings(){
+        return {
+            enabled: localStorage.getItem(STORAGE_KEY_ENABLED) !== 'false',
+        };
+    }
+
+    function initializeCoreEarly(){
+        // 1) 环境探测与CSS隔离
+        tryGuard('createIsolatedStyles', () => createIsolatedStyles());
+        // 2) 悬浮按钮：若启用则尽早创建（不依赖后续UI）
+        const settings = getRuntimeSettings();
+        if (settings.enabled) { tryGuard('initializeFloatingButton', () => initializeFloatingButton()); }
+    }
+
+    // 立即启动早期核心初始化（不阻塞后续流程）
+    initializeCoreEarly();
 
     // 样式隔离前缀，确保不影响其他插件
     const STYLE_PREFIX = 'virtual-pet-';
@@ -117,6 +199,25 @@ jQuery(async () => {
      */
     function createIsolatedStyles() {
         const styleId = `${STYLE_PREFIX}isolated-styles`;
+
+
+
+
+    // Pet-type based SVG avatars
+    function getPetTypeIcon(type = 'cat', size = 18, color = '#ffd700'){
+        const sz = Number(size)||18;
+        if(type==='dog'){
+            return `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12c0-5 4-7 8-7s8 2 8 7"/><path d="M7 14v2a4 4 0 0 0 4 4h2a4 4 0 0 0 4-4v-2"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="11" r="1"/></svg>`;
+        }
+        if(type==='bird'){
+            return `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12s4-6 9-6 9 6 9 6-4 6-9 6-9-6-9-6z"/><path d="M12 8l3 2-3 2-3-2 3-2z"/></svg>`;
+        }
+        if(type==='rabbit'){
+            return `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3c2 2 2 5 2 5"/><path d="M18 3c-2 2-2 5-2 5"/><circle cx="12" cy="12" r="6"/></svg>`;
+        }
+        // default cat
+        return `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8l2-3 3 2 3-2 3 2 3-2 2 3"/><circle cx="12" cy="13" r="6"/></svg>`;
+    }
 
         // 如果已经存在，先移除
         $(`#${styleId}`).remove();
@@ -201,7 +302,7 @@ jQuery(async () => {
      * 检查并修复CSS变量污染
      */
     function checkAndFixCSSVariables() {
-        console.log(`[${extensionName}] 🔍 检查CSS变量污染...`);
+        console.log(`[${extensionName}] [CHECK] 检查CSS变量污染...`);
 
         // 检查是否有插件修改了关键的CSS变量
         const rootStyle = getComputedStyle(document.documentElement);
@@ -233,74 +334,7 @@ jQuery(async () => {
         return !hasIssues;
     }
 
-    // 全局紧急修复函数
-    window.emergencyFixSillyTavernUI = function() {
-        console.log('🚨 紧急修复SillyTavern UI...');
 
-        // 1. 检查并修复CSS变量污染
-        checkAndFixCSSVariables();
-
-        // 2. 移除所有虚拟宠物相关样式
-        $('style').each(function() {
-            const content = $(this).text();
-            if (content.includes('virtual-pet') ||
-                content.includes('body >') ||
-                content.includes('position: relative !important') ||
-                content.includes(':root')) {
-                console.log('移除样式:', $(this).attr('id') || '匿名样式');
-                $(this).remove();
-            }
-        });
-
-        // 3. 重置body样式
-        $('body').removeAttr('style');
-        $('body').css({
-            'position': '',
-            'overflow': '',
-            'display': '',
-            'visibility': ''
-        });
-
-        // 4. 重置html样式
-        $('html').removeAttr('style');
-        $('html').css({
-            'position': '',
-            'overflow': '',
-            'display': '',
-            'visibility': ''
-        });
-
-        // 5. 清除document.documentElement上的样式
-        const docStyle = document.documentElement.style;
-        for (let i = docStyle.length - 1; i >= 0; i--) {
-            const prop = docStyle[i];
-            if (prop.includes('virtual-pet') || prop.startsWith('--')) {
-                docStyle.removeProperty(prop);
-            }
-        }
-
-        // 6. 移除虚拟宠物元素
-        $('[id*="virtual-pet"]').remove();
-        $('[class*="virtual-pet"]').remove();
-
-        // 7. 强制刷新页面布局
-        $('body').hide().show();
-
-        console.log('✅ 紧急修复完成！请刷新页面以完全恢复。');
-        alert('🚨 紧急修复完成！\n\n请按 Ctrl+F5 强制刷新页面以完全恢复SillyTavern界面。\n\n如果问题持续，请禁用虚拟宠物插件。');
-
-        return true;
-    };
-
-    // 立即执行紧急清理（如果检测到问题）
-    setTimeout(() => {
-        if ($('body').children().length === 0 ||
-            $('body').css('display') === 'none' ||
-            $('#send_textarea').length === 0) {
-            console.log(`[${extensionName}] 🚨 检测到SillyTavern UI问题，执行紧急修复...`);
-            window.emergencyFixSillyTavernUI();
-        }
-    }, 1000);
 
     /**
      * 安全的SillyTavern设置保存函数
@@ -327,50 +361,607 @@ jQuery(async () => {
         return false;
     }
 
-    // 拓麻歌子风格配色方案
+    // Candy Pop 2.0 精致糖果色配色方案
     const candyColors = {
-        // 主色调 - 经典拓麻歌子风格
-        primary: '#000000',      // 黑色主色
-        secondary: '#333333',    // 深灰
-        accent: '#666666',       // 中灰
-        warning: '#FF8000',      // 橙色警告
-        success: '#008000',      // 绿色成功
+        // 主色调 - 精致现代风格
+        primary: '#4E342E',      // 深巧克力色 - 温暖的深色文字
+        secondary: '#6D4C41',    // 中巧克力色
+        accent: '#8D6E63',       // 浅巧克力色
+        warning: '#FF9800',      // 温暖橙色
+        success: '#4CAF50',      // 清新绿色
 
-        // 背景色 - 糖果色渐变
-        background: 'linear-gradient(135deg, #FFE5F1 0%, #E5F9F0 50%, #E5F4FF 100%)', // 糖果渐变
-        backgroundSolid: '#FFF8FC', // 纯色背景备选
-        screen: '#FFE5F1',       // 糖果粉屏幕
-        screenDark: '#E5F9F0',   // 薄荷绿屏幕
+        // 背景色 - 奶油糖果色
+        background: 'linear-gradient(135deg, #FFFBEB 0%, #FFF0F5 50%, #F0F8FF 100%)', // 奶油渐变
+        backgroundSolid: '#FFFBEB', // 奶油色背景
+        screen: '#FFF0F5',       // 棉花糖粉
+        screenDark: '#F0F8FF',   // 爱丽丝蓝
 
-        // 文字色 - 糖果色适配
-        textPrimary: '#2D3748',   // 深灰色文字
-        textSecondary: '#4A5568', // 中灰色文字
-        textLight: '#718096',     // 浅灰色文字
-        textWhite: '#FFFFFF',     // 白色文字
+        // 文字色 - 温暖巧克力色系
+        textPrimary: '#4E342E',   // 深巧克力色 - 主要文字
+        textSecondary: '#6D4C41', // 中巧克力色 - 次要文字
+        textLight: '#8D6E63',     // 浅巧克力色 - 辅助文字
+        textWhite: '#FFFFFF',     // 纯白色文字
+        textMuted: '#A1887F',     // 柔和巧克力色
 
-        // 边框和阴影 - 柔和风格
-        border: '#E2E8F0',       // 浅边框
-        borderAccent: '#FF9EC7', // 强调边框
-        shadow: 'rgba(255, 158, 199, 0.2)', // 粉色阴影
-        shadowLight: 'rgba(255, 158, 199, 0.1)', // 浅粉色阴影
+        // 边框和阴影 - 彩色弥散效果
+        border: '#F8BBD9',       // 柔和粉色边框
+        borderAccent: '#FF6B6B', // 活力珊瑚粉边框
+        shadow: 'rgba(255, 107, 107, 0.15)', // 珊瑚粉弥散阴影
+        shadowLight: 'rgba(255, 107, 107, 0.08)', // 浅珊瑚粉阴影
+        shadowGlow: 'rgba(255, 107, 107, 0.25)', // 发光效果阴影
 
-        // 按钮色 - 糖果色风格
-        buttonPrimary: '#FF9EC7',
-        buttonSecondary: '#A8E6CF',
-        buttonAccent: '#87CEEB',
-        buttonHover: '#FF7FB3',
+        // 按钮色 - 精致糖果色
+        buttonPrimary: '#FF6B6B',    // 活力珊瑚粉
+        buttonSecondary: '#48D1CC',  // 清新薄荷绿
+        buttonAccent: '#FFD166',     // 柠檬黄
+        buttonHover: '#FF5252',      // 深珊瑚粉
+        buttonSoft: '#F8BBD9',       // 柔和粉色
 
-        // 状态栏色 - 糖果色风格
-        health: '#FF6B9D',       // 健康 - 糖果粉
-        happiness: '#FFD93D',    // 快乐 - 柠檬黄
-        hunger: '#FF9F43',       // 饱食 - 蜜桃橙
-        energy: '#74B9FF',       // 精力 - 天空蓝
-        experience: '#A29BFE',   // 经验 - 薰衣草紫
+        // 状态栏色 - Candy Pop 2.0 精致色彩
+        health: '#FF87A0',       // 草莓粉 - 更精致的健康色
+        happiness: '#FFD166',    // 柠檬黄 - 明亮快乐
+        hunger: '#FF9F68',       // 蜜桃橙 - 温暖饱食色
+        energy: '#74B9FF',       // 苏打蓝 - 清爽精力色
+        experience: '#B794F6',   // 薰衣草紫 - 优雅经验色
 
-        // 额外按钮色
-        info: '#17A2B8'          // 信息蓝 - 用于聊天按钮
+        // 特殊功能色
+        info: '#48D1CC',         // 薄荷绿 - 信息色
+        love: '#FF69B4',         // 热情粉 - 爱心色
+        magic: '#DDA0DD',        // 梅花紫 - 魔法色
+        gold: '#FFD700',         // 金色 - 特殊奖励色
+
+        // Candy Pop 2.0 字体系统
+        fontFamily: "'Nunito', 'Quicksand', 'Baloo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        fontFamilyCode: "'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace" // 代码字体保留等宽
     };
-    
+
+    // 添加 Candy Pop 2.0 动画样式（在 candyColors 定义之后）
+    const candyPopAnimations = `
+        <style>
+            @keyframes petGlow {
+                0% {
+                    box-shadow: 0 0 20px ${candyColors.shadowGlow},
+                                0 0 40px ${candyColors.shadowGlow} !important;
+                    transform: scale(1) !important;
+                }
+                100% {
+                    box-shadow: 0 0 30px ${candyColors.gold},
+                                0 0 60px ${candyColors.gold} !important;
+                    transform: scale(1.05) !important;
+                }
+            }
+
+            @keyframes buttonPress {
+                0% { transform: translateY(0) scale(1) !important; }
+                50% { transform: translateY(2px) scale(0.98) !important; }
+                100% { transform: translateY(0) scale(1) !important; }
+            }
+
+            @keyframes statusPulse {
+                0%, 100% { opacity: 1 !important; }
+                50% { opacity: 0.8 !important; }
+            }
+        </style>
+    `;
+
+    // 注入动画样式到页面
+    if (!document.getElementById('candy-pop-animations')) {
+        const styleElement = document.createElement('style');
+        styleElement.id = 'candy-pop-animations';
+        styleElement.innerHTML = candyPopAnimations;
+        document.head.appendChild(styleElement);
+    }
+
+    /**
+     * 获取 Feather Icon 的 SVG HTML
+     * @param {string} name 图标名称
+     * @param {object} options 可选参数，如颜色、大小
+     * @returns {string} SVG图标的HTML字符串
+     */
+    function getFeatherIcon(name, { color = 'currentColor', size = 20, strokeWidth = 2 } = {}) {
+        const svgHeader = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" class="feather feather-${name}">`;
+
+        // Feather Icons 路径数据
+        const paths = {
+            // 状态相关图标
+            'heart': '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>',
+            'smile': '<circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line>',
+            'zap': '<polygon points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"></polygon>',
+            'coffee': '<path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line>',
+
+            // 动作相关图标
+            'utensils': '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3z"></path>',
+
+
+
+            'gamepad-2': '<line x1="6" y1="11" x2="10" y2="11"></line><line x1="8" y1="9" x2="8" y2="13"></line><line x1="15" y1="12" x2="15.01" y2="12"></line><line x1="18" y1="10" x2="18.01" y2="10"></line><rect x="2" y="6" width="20" height="12" rx="2"></rect>',
+            'moon': '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>',
+            'gift': '<polyline points="20,12 20,22 4,22 4,12"></polyline><rect x="2" y="7" width="20" height="5"></rect><line x1="12" y1="22" x2="12" y2="7"></line><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path>',
+
+            // 功能相关图标
+            'shopping-bag': '<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path>',
+            'message-circle': '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>',
+            'settings': '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>',
+            'package': '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27,6.96 12,12.01 20.73,6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line>',
+            'plus': '<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>',
+            'x': '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>',
+
+            // 治疗相关图标
+            'shield': '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>',
+            'activity': '<polyline points="22,12 18,12 15,21 9,3 6,12 2,12"></polyline>',
+
+            // 其他图标
+            'star': '<polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>',
+            'award': '<circle cx="12" cy="8" r="7"></circle><polyline points="8.21,13.89 7,23 12,20 17,23 15.79,13.88"></polyline>',
+            'trending-up': '<polyline points="23,6 13.5,15.5 8.5,10.5 1,18"></polyline><polyline points="17,6 23,6 23,12"></polyline>',
+
+            // 商店物品图标
+            'apple': '<path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"></path><path d="M10 2c1 .5 2 2 2 5"></path>',
+            'sandwich': '<path d="M3 11v3a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-3"></path><path d="M12 19H4a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2h-8Z"></path><path d="M20 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v3"></path><path d="M4 14h16"></path>',
+            'cake': '<path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"></path><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"></path><path d="M2 21h20"></path><path d="M7 8v3"></path><path d="M12 8v3"></path><path d="M17 8v3"></path>',
+            'pill': '<path d="M10.5 20.5 10 10l10.5 10.5a2.828 2.828 0 1 1-4 4Z"></path><path d="M8.5 8.5 18 18l-4 4L4.5 12.5a2.828 2.828 0 1 1 4-4Z"></path>',
+            'syringe': '<path d="M18 6 7 17l-4-4"></path><path d="M7 17l4 4"></path><path d="M3 21l4-4"></path><circle cx="18" cy="6" r="3"></circle>',
+            'ball': '<circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path>',
+            'robot': '<rect x="3" y="11" width="18" height="10" rx="2" ry="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8" y2="16"></line><line x1="16" y1="16" x2="16" y2="16"></line>',
+            'clock': '<circle cx="12" cy="12" r="10"></circle><polyline points="12,6 12,12 16,14"></polyline>',
+            'sparkles': '<path d="M9 12l2 2 4-4"></path><path d="M21 12c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1z"></path><path d="M3 12c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1z"></path><path d="M12 3c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1z"></path><path d="M12 21c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1z"></path>',
+            'gem': '<path d="M6 3h12l4 6-10 13L2 9l4-6z"></path><path d="M11 3 8 9l4 13 4-13-3-6"></path><path d="M2 9h20"></path>'
+        };
+
+        return `${svgHeader}${paths[name] || ''}</svg>`;
+    }
+
+
+        // Default pet SVG icon (for main UI and chat avatars)
+        function getDefaultPetIcon(size = 48, color = '#ffd700') {
+            try {
+                return getPetTypeIcon(petData.type || 'cat', size, color);
+            } catch (e) {
+                return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>`;
+            }
+        }
+
+        // ------------------------------
+        // UI Route A: K-POP Neon quick skin (non-breaking, additive)
+        // ------------------------------
+        const kpopNeonTheme = {
+            primary: '#FF2D95',
+            cyan: '#00F0FF',
+            purple: '#9B5CFF',
+            blue: '#00A3FF',
+
+
+
+            lime: '#80FF00',
+            bg: '#0B0E1A',
+            panel: '#111424',
+            text: '#EAF4FF',
+            muted: '#90A4C8',
+            border: 'rgba(164, 0, 255, 0.40)',
+            glow: 'rgba(255, 45, 149, 0.60)',
+            glow2: 'rgba(0, 243, 255, 0.55)'
+        };
+
+        function injectKpopNeonStyles() {
+            if (document.getElementById('virtual-pet-kpop-neon')) return;
+            const css = `
+            /* K-POP Neon theme (Route A) - scoped to plugin IDs/classes */
+            #${BUTTON_ID}.kpop-neon, #${POPUP_ID}.kpop-neon {
+              --vp-bg: ${kpopNeonTheme.bg};
+              --vp-panel: ${kpopNeonTheme.panel};
+              --vp-text: ${kpopNeonTheme.text};
+              --vp-muted: ${kpopNeonTheme.muted};
+              --vp-neon1: ${kpopNeonTheme.primary};
+              --vp-neon2: ${kpopNeonTheme.cyan};
+              --vp-neon3: ${kpopNeonTheme.purple};
+              --vp-border: ${kpopNeonTheme.border};
+              --vp-fast: 160ms;
+              --vp-ease: cubic-bezier(.22,.61,.36,1);
+            }
+
+            /* Floating button */
+            #${BUTTON_ID}.kpop-neon {
+              width: 52px; height: 52px;
+              border-radius: 14px;
+              border: 1px solid var(--vp-border);
+              background: radial-gradient(120px 120px at 30% 20%, rgba(255,45,149,.22), transparent 55%),
+                          radial-gradient(180px 180px at 80% 70%, rgba(0,240,255,.18), transparent 60%),
+                          rgba(17,20,36,.72);
+              backdrop-filter: blur(8px);
+              box-shadow: 0 8px 24px rgba(0,0,0,.35), 0 0 18px var(--vp-neon1), 0 0 28px var(--vp-neon2);
+              display: inline-flex; align-items: center; justify-content: center;
+              transition: transform var(--vp-fast) var(--vp-ease), box-shadow var(--vp-fast) var(--vp-ease), filter var(--vp-fast) var(--vp-ease);
+              overflow: hidden;
+            }
+            #${BUTTON_ID}.kpop-neon:hover { transform: translateY(-1px) scale(1.02); box-shadow: 0 10px 28px rgba(0,0,0,.38), 0 0 22px var(--vp-neon1), 0 0 36px var(--vp-neon2); }
+            #${BUTTON_ID}.kpop-neon:active { transform: translateY(1px) scale(.98); filter: saturate(1.2); }
+            #${BUTTON_ID}.kpop-neon svg, #${BUTTON_ID}.kpop-neon img { filter: drop-shadow(0 0 6px var(--vp-neon2)) drop-shadow(0 0 10px var(--vp-neon1)); }
+            #${BUTTON_ID}.kpop-neon img { width: 70%; height: 70%; border-radius: 12px; object-fit: cover; }
+
+            /* Popup panel */
+            #${POPUP_ID}.kpop-neon {
+              background: linear-gradient(180deg, rgba(17,20,36,.96) 0%, rgba(11,14,26,.96) 100%);
+              border: 1px solid var(--vp-border);
+              box-shadow: 0 20px 60px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.03), 0 0 40px rgba(0,243,255,.12);
+              border-radius: 16px;
+              color: var(--vp-text);
+            }
+            #${POPUP_ID}.kpop-neon h1, #${POPUP_ID}.kpop-neon h2, #${POPUP_ID}.kpop-neon h3, #${POPUP_ID}.kpop-neon .section-title {
+              color: var(--vp-text);
+              text-shadow: 0 0 8px var(--vp-neon2), 0 0 14px var(--vp-neon1);
+            }
+            #${POPUP_ID}.kpop-neon button, #${POPUP_ID}.kpop-neon .btn {
+              background: linear-gradient(90deg, var(--vp-neon1) 0%, var(--vp-neon2) 100%);
+              color: #0b0e1a; border: 0; border-radius: 10px; padding: 8px 12px;
+              box-shadow: 0 6px 18px rgba(0,0,0,.35), 0 0 18px var(--vp-neon1);
+              transition: transform var(--vp-fast) var(--vp-ease), box-shadow var(--vp-fast) var(--vp-ease);
+            }
+            #${POPUP_ID}.kpop-neon button:hover, #${POPUP_ID}.kpop-neon .btn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(0,0,0,.38), 0 0 26px var(--vp-neon2); }
+            #${POPUP_ID}.kpop-neon button:active, #${POPUP_ID}.kpop-neon .btn:active { transform: translateY(1px) scale(.98); }
+
+            /* Overlay tweaks */
+            #${OVERLAY_ID}.kpop-neon-overlay {
+              background: radial-gradient(1200px 800px at 10% 10%, rgba(255,45,149,.10), transparent 40%),
+                          radial-gradient(1200px 800px at 90% 20%, rgba(0,240,255,.08), transparent 45%),
+                          rgba(0,0,0,.50) !important;
+            }
+
+            /* Settings UI Neon restyle */
+            #${POPUP_ID}.kpop-neon #ai-config-container {
+              background: linear-gradient(180deg, rgba(30,34,58,.78) 0%, rgba(18,22,40,.78) 100%);
+              border: 1px solid var(--vp-border);
+              border-radius: 14px; padding: 14px !important; margin-top: 12px !important;
+              box-shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.04), 0 0 20px rgba(0,243,255,.10);
+              backdrop-filter: blur(6px);
+            }
+            #${POPUP_ID}.kpop-neon label { color: var(--vp-text) !important; text-shadow: 0 0 6px rgba(0,243,255,.25); }
+            #${POPUP_ID}.kpop-neon small.notes { color: var(--vp-muted) !important; }
+            #${POPUP_ID}.kpop-neon select#ai-api-select,
+            #${POPUP_ID}.kpop-neon select#ai-model-select,
+            #${POPUP_ID}.kpop-neon input#ai-url-input,
+            #${POPUP_ID}.kpop-neon input#ai-key-input,
+            #${POPUP_ID}.kpop-neon input#ai-model-input {
+              background: rgba(11,14,26,.6) !important; color: var(--vp-text) !important;
+              border: 1px solid rgba(0,243,255,.25) !important; border-radius: 10px !important;
+              outline: none !important; box-shadow: 0 0 0 0 rgba(0,243,255,.0) !important;
+            }
+            #${POPUP_ID}.kpop-neon select#ai-api-select:focus,
+            #${POPUP_ID}.kpop-neon select#ai-model-select:focus,
+            #${POPUP_ID}.kpop-neon input#ai-url-input:focus,
+            #${POPUP_ID}.kpop-neon input#ai-key-input:focus,
+            #${POPUP_ID}.kpop-neon input#ai-model-input:focus {
+              border-color: var(--vp-neon2) !important;
+              box-shadow: 0 0 0 2px rgba(0,243,255,.18), 0 0 18px rgba(0,243,255,.18) !important;
+            }
+            #${POPUP_ID}.kpop-neon #ai-url-reset-btn,
+            #${POPUP_ID}.kpop-neon #refresh-models-btn,
+            #${POPUP_ID}.kpop-neon #test-ai-connection-btn {
+              background: linear-gradient(90deg, var(--vp-neon1) 0%, var(--vp-neon2) 100%) !important;
+              color: #0b0e1a !important; border: none !important; border-radius: 10px !important;
+              padding: 8px 12px !important; cursor: pointer !important;
+              box-shadow: 0 6px 18px rgba(0,0,0,.35), 0 0 18px var(--vp-neon1) !important;
+              transition: transform var(--vp-fast) var(--vp-ease), box-shadow var(--vp-fast) var(--vp-ease) !important;
+            }
+            #${POPUP_ID}.kpop-neon #ai-url-reset-btn:hover,
+            #${POPUP_ID}.kpop-neon #refresh-models-btn:hover,
+            #${POPUP_ID}.kpop-neon #test-ai-connection-btn:hover {
+              transform: translateY(-1px) !important; box-shadow: 0 10px 22px rgba(0,0,0,.38), 0 0 26px var(--vp-neon2) !important;
+            }
+            #${POPUP_ID}.kpop-neon #ai-connection-status { color: var(--vp-muted) !important; }
+            `;
+            const style = document.createElement('style');
+            style.id = 'virtual-pet-kpop-neon';
+            style.textContent = css;
+            document.head.appendChild(style);
+        }
+
+        function applyKpopNeonSkin() {
+            try { injectKpopNeonStyles(); } catch(e) { console.warn('injectKpopNeonStyles failed', e); }
+            const btn = document.getElementById(BUTTON_ID);
+            if (btn) {
+                btn.classList.add('kpop-neon');
+                // If no avatar/img present, ensure we show a neon icon
+                const hasVisual = btn.querySelector('img, svg');
+                if (!hasVisual) {
+                    btn.innerHTML = getFeatherIcon('heart', { color: kpopNeonTheme.cyan, size: 20, strokeWidth: 2 });
+                }
+            }
+            const popup = document.getElementById(POPUP_ID);
+            if (popup) popup.classList.add('kpop-neon');
+            const overlayEl = document.getElementById(OVERLAY_ID);
+            if (overlayEl) overlayEl.classList.add('kpop-neon-overlay');
+        }
+
+        (function bootKpopNeonSkin(){
+            // Default ON; can disable by localStorage.setItem('virtual-pet-ui-v2','false')
+            const enable = (localStorage.getItem('virtual-pet-ui-v2') ?? 'true') === 'true';
+            if (!enable) return;
+            let appliedOnce = false;
+            const tryApply = () => {
+                if (appliedOnce) return;
+                if (document.getElementById(BUTTON_ID) || document.getElementById(POPUP_ID)) {
+                    applyKpopNeonSkin();
+                    appliedOnce = true;
+                }
+            };
+            // Try a few times until UI mounts
+            const t = setInterval(() => { tryApply(); if (appliedOnce) clearInterval(t); }, 600);
+            setTimeout(tryApply, 0);
+            // Observe DOM for newly created popup/button
+            try {
+                const obs = new MutationObserver((muts) => {
+                    for (const m of muts) {
+                        for (const node of m.addedNodes) {
+                            if (node && node.nodeType === 1) {
+                                const el = node;
+                                if (el.id === POPUP_ID || el.id === BUTTON_ID || el.querySelector?.(`#${POPUP_ID}, #${BUTTON_ID}`)) {
+                                    applyKpopNeonSkin();
+                                }
+                            }
+                        }
+                    }
+                });
+                obs.observe(document.body, { childList: true, subtree: true });
+            } catch (e) { /* ignore */ }
+        })();
+
+        // 拓麻歌子式生命阶段定义 - moved earlier to avoid TDZ when used in UI builders
+        const LIFE_STAGES = {
+            baby:   { name: "幼体",  duration: 24,  icon: 'egg' },   // 24小时
+            child:  { name: "儿童",  duration: 48,  icon: 'baby' },   // 48小时
+            teen:   { name: "少年",  duration: 72,  icon: 'bird' },   // 72小时
+            adult:  { name: "成年",  duration: 120, icon: 'bird' },   // 120小时
+            senior: { name: "老年",  duration: 48,  icon: 'activity' }    // 48小时后死亡
+        };
+
+
+        // ====== Debug helpers: detailed error logging in console ======
+        function redactHeaders(h) {
+            try {
+                const c = { ...(h || {}) };
+                if (c.Authorization) c.Authorization = 'Bearer ***';
+                if (c['x-api-key']) c['x-api-key'] = '***';
+                if (c['x-goog-api-key']) c['x-goog-api-key'] = '***';
+                return c;
+            } catch { return {}; }
+        }
+        function previewBody(body) {
+            try {
+                if (!body) return null;
+                if (body.messages) {
+                    return { model: body.model, messages: body.messages?.length, max_tokens: body.max_tokens, temperature: body.temperature };
+                }
+                if (body.contents) {
+                    return { hasContents: true, maxOutputTokens: body.generationConfig?.maxOutputTokens };
+                }
+                return body;
+            } catch { return null; }
+        }
+        function classifyNetworkError(error) {
+            const msg = (error && (error.message || String(error))) || '';
+            if (msg.includes('CORS') || msg.includes('Access-Control-Allow-Origin')) return 'CORS';
+            if (msg.includes('Failed to fetch')) return 'NETWORK';
+            if (msg.includes('ERR_CONNECTION')) return 'NETWORK_RESET';
+            if (msg.includes('aborted') || error?.name === 'AbortError') return 'TIMEOUT/ABORT';
+            if (msg.startsWith('HTTP')) return 'HTTP';
+            return 'UNKNOWN';
+        }
+        function logDetailedError(context, info, error) {
+            const tag = `[${extensionName}]`;
+            try {
+                console.groupCollapsed(`${tag} ❌ ${context}`);
+                console.log('Context:', info || {});
+                if (error) {
+                    console.log('Class:', classifyNetworkError(error));
+                    console.log('Name:', error.name);
+                    console.log('Message:', error.message);
+                    if (error.stack) console.log('Stack:', error.stack.split('\n').slice(0, 3).join('\n'));
+                }
+                console.groupEnd();
+            } catch (e) {
+                console.error(`${tag} ❌ ${context}`, error);
+            }
+        }
+        // ==============================================================
+
+
+        // Centralized AI connection helpers (minimal refactor)
+        function getRelayUrl() {
+            try {
+                const override = localStorage.getItem('virtual-pet-relay-url');
+                return (override && override.trim()) || 'http://154.12.38.33:3000/proxy';
+            } catch { return 'http://154.12.38.33:3000/proxy'; }
+        }
+        function resolveTargetUrl(settings) {
+            let base = (settings.apiUrl || '').replace(/\/+$/, '');
+            if (!base) return '';
+            if (settings.apiType === 'openai' || settings.apiType === 'deepseek') {
+                if (!base.includes('/chat/completions')) {
+                    if (base.endsWith('/v1')) base += '/chat/completions';
+                    else if (!base.includes('/v1')) base += '/v1/chat/completions';
+                    else base += '/chat/completions';
+                }
+            } else if (settings.apiType === 'claude') {
+                if (!base.includes('/messages')) {
+                    if (base.endsWith('/v1')) base += '/messages';
+                    else if (!base.includes('/v1')) base += '/v1/messages';
+                    else base += '/messages';
+                }
+            } else if (settings.apiType === 'google') {
+                if (!base.includes(':generateContent')) {
+                    let modelName = settings.apiModel || 'gemini-pro';
+                    if (modelName.startsWith('models/')) modelName = modelName.replace('models/', '');
+                    if (base.endsWith('/v1beta')) base += `/models/${modelName}:generateContent`;
+                    else if (!base.includes('/v1beta')) base += `/v1beta/models/${modelName}:generateContent`;
+                    else base += `/models/${modelName}:generateContent`;
+                }
+            } else if (settings.apiType === 'custom') {
+                if (!base.includes('/chat/completions') && !base.includes('/messages') && !base.includes(':generateContent')) {
+                    if (base.endsWith('/v1')) base += '/chat/completions';
+                    else if (!base.includes('/v1')) base += '/v1/chat/completions';
+                    else base += '/chat/completions';
+                }
+            }
+            return base;
+        }
+        function buildHeaders(settings) {
+            const h = { 'Content-Type': 'application/json' };
+            if (settings.apiType === 'google') h['x-goog-api-key'] = settings.apiKey;
+            else if (settings.apiType === 'claude') { h['x-api-key'] = settings.apiKey; h['anthropic-version'] = '2023-06-01'; }
+            else h['Authorization'] = `Bearer ${settings.apiKey}`;
+            return h;
+        }
+        function buildRequestBody(settings, prompt) {
+            if (settings.apiType === 'claude') {
+                return { model: settings.apiModel || 'claude-3-sonnet-20240229', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] };
+            } else if (settings.apiType === 'google') {
+                return { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 1000, temperature: 0.7 } };
+            } else {
+                let defaultModel = 'gpt-3.5-turbo';
+                if (settings.apiType === 'deepseek') defaultModel = 'deepseek-chat';
+                else if (settings.apiType === 'custom') defaultModel = settings.apiModel || 'gpt-3.5-turbo';
+                return { model: settings.apiModel || defaultModel, messages: [{ role: 'user', content: prompt }], max_tokens: 1000, temperature: 0.7 };
+            }
+        }
+
+
+        // ===== AIConnector: unified, resilient AI + Models connection layer =====
+        const AIConnector = (() => {
+            async function fetchJson(url, options = {}, timeout = 15000) {
+                const controller = new AbortController();
+                const id = setTimeout(() => controller.abort(), timeout);
+                try {
+                    const resp = await fetch(url, { ...options, signal: controller.signal });
+                    const text = await resp.text();
+                    let data = null; try { data = text ? JSON.parse(text) : null; } catch { /* non-json */ }
+                    return { ok: resp.ok, status: resp.status, data, text };
+                } finally { clearTimeout(id); }
+            }
+
+            function classify(err){ return classifyNetworkError(err); }
+
+            async function relayRequest(relayUrl, targetUrl, method, headers, body, timeout = 20000) {
+                console.debug(`[${extensionName}] ▶️ Relay Request`, {
+                    relayUrl, targetUrl, headers: redactHeaders(headers), body: previewBody(body), timeout
+                });
+                const payload = { targetUrl, method, headers, body };
+                const r = await fetchJson(relayUrl, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                }, timeout);
+                if (!r.ok) throw new Error(`Relay HTTP ${r.status}: ${r.text || ''}`);
+                return r.data;
+            }
+
+            function parseModels(data, endpoint, apiType) {
+                if (typeof parseModelsFromResponseNew === 'function') {
+                    try { return parseModelsFromResponseNew(data, endpoint, apiType) || []; } catch {}
+                }
+                // Fallback generic parsing
+                const out = [];
+                const pushId = (id, name) => { if (id && !out.find(m=>m.id===id)) out.push({ id, name: name||id }); };
+                const candidates = data?.data || data?.models || data?.items || data;
+                if (Array.isArray(candidates)) {
+                    for (const item of candidates) {
+                        if (!item) continue;
+                        if (typeof item === 'string') pushId(item);
+                        else if (item.id) pushId(item.id, item.name||item.id);
+                        else if (item.model) pushId(item.model);
+                        else if (item.engine_id) pushId(item.engine_id);
+                        else if (item.name) pushId(item.name, item.name);
+                    }
+                }
+                return out;
+            }
+
+            function buildModelEndpoints(apiUrl, apiType){
+                const base = (apiUrl||'').replace(/\/+$/,'');
+                const arr = [];
+                if (apiType === 'google') {
+                    if (base.includes('/v1beta')) arr.push(`${base}/models`); else arr.push(`${base}/v1beta/models`);
+                } else if (apiType === 'claude') {
+                    if (base.includes('/v1')) arr.push(`${base}/models`); else arr.push(`${base}/v1/models`);
+                } else if (apiType === 'custom') {
+                    if (base.includes('/v1')) arr.push(`${base}/models`); else arr.push(`${base}/v1/models`);
+                    arr.push(`${base}/models`, `${base}/engines`, `${base}/v1/engines`, `${base}/api/models`, `${base}/api/v1/models`);
+                } else {
+                    if (base.includes('/v1')) arr.push(`${base}/models`); else arr.push(`${base}/v1/models`);
+                }
+                return [...new Set(arr)];
+            }
+
+            async function fetchModels(settings) {
+                const apiType = settings.apiType; const apiUrl = settings.apiUrl; const apiKey = settings.apiKey;
+                const endpoints = buildModelEndpoints(apiUrl, apiType);
+                const headers = buildHeaders(settings);
+
+                // Try direct
+                for (const ep of endpoints) {
+                    try {
+                        console.debug(`[${extensionName}] ▶️ Models Direct`, { url: ep, headers: redactHeaders(headers) });
+                        const r = await fetchJson(ep, { method: 'GET', headers }, 12000);
+                        if (r.ok && r.data) {
+                            const models = parseModels(r.data, ep, apiType);
+                            if (models?.length) return models;
+                        } else if (r.status === 401 || r.status === 403) {
+                            // auth error: stop trying others, surface error
+                            throw new Error(`HTTP ${r.status}: Unauthorized`);
+                        }
+                    } catch (e) {
+                        const c = classify(e);
+                        if (c === 'HTTP') continue; // try next endpoint
+                        if (c === 'CORS' || c === 'NETWORK' || c === 'NETWORK_RESET' || c === 'TIMEOUT/ABORT' || String(e).includes('Failed to fetch')) {
+                            // Will fallback to relay after loop
+                            console.warn(`[${extensionName}] Direct models fetch error on ${apiUrl}: ${e.message}`);
+                            break;
+                        }
+                    }
+                }
+
+                // Fallback via relay
+                const relayUrl = getRelayUrl();
+                for (const ep of endpoints) {
+                    try {
+                        const data = await relayRequest(relayUrl, ep, 'GET', headers, undefined, 15000);
+                        const models = parseModels(data, ep, apiType);
+                        if (models?.length) return models;
+                    } catch (e) {
+                        console.warn(`[${extensionName}] Relay models fetch error: ${e.message}`);
+                    }
+                }
+
+                // Fallback to recommended
+                if (typeof getRecommendedModels === 'function') {
+                    return getRecommendedModels(apiType);
+                }
+                return [];
+            }
+
+            async function chat(settings, prompt, timeout){
+                const url = resolveTargetUrl(settings);
+                const headers = buildHeaders(settings);
+                const body = buildRequestBody(settings, prompt);
+                // Direct
+                try {
+                    const r = await fetchJson(url, { method: 'POST', headers, body: JSON.stringify(body) }, timeout);
+                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.text}`);
+                    return r.data;
+                } catch (e) {
+                    const cls = classify(e);
+                    if (!(cls==='CORS'||cls==='NETWORK'||cls==='NETWORK_RESET'||cls==='TIMEOUT/ABORT'||String(e).includes('Failed to fetch'))) throw e;
+                }
+                // Relay
+                const relayUrl = getRelayUrl();
+                const data = await relayRequest(relayUrl, url, 'POST', headers, body, Math.max(timeout, 25000));
+                return data;
+            }
+
+            return { fetchModels, chat };
+        })();
+        window.AIConnector = AIConnector;
+        // ==========================================================================
+
+
+
     // 宠物数据结构 - 智能初始化系统
     let petData = {
         name: "小宠物",
@@ -378,9 +969,9 @@ jQuery(async () => {
         level: 1,
         experience: 0,
         health: 100,     // 初始健康，无压力开局
-        happiness: 30,   // 保持较低值以鼓励互动
-        hunger: 40,      // 保持较低值以鼓励互动
-        energy: 45,      // 保持较低值以鼓励互动
+        happiness: 50,   // 初始快乐
+        hunger: 40,      // 初始饱食
+        energy: 50,      // 初始精力
 
         // 拓麻歌子式生命状态
         lifeStage: "baby",    // baby, child, teen, adult, senior
@@ -418,74 +1009,9 @@ jQuery(async () => {
         dataVersion: 4.1 // 数据版本标记 - 升级到4.1表示首次互动激活机制
     };
 
-    /**
-     * 🧪 测试宠物状态系统大修
-     */
-    window.testPetStatusSystemFix = function() {
-        console.log('🧪 测试宠物状态系统大修...');
 
-        console.log('\n📊 当前宠物状态:');
-        console.log(`- 健康: ${petData.health}/100`);
-        console.log(`- 快乐: ${petData.happiness}/100`);
-        console.log(`- 饱食: ${petData.hunger}/100`);
-        console.log(`- 精力: ${petData.energy}/100`);
-        console.log(`- 首次互动: ${petData.hasInteracted ? '已激活' : '未激活'}`);
-        console.log(`- 数据版本: ${petData.dataVersion}`);
 
-        console.log('\n🔧 测试激活机制:');
-        if (!petData.hasInteracted) {
-            console.log('✅ 宠物处于宽限期，数值不会衰减');
-            console.log('💡 进行任何互动（喂食、玩耍、抱抱）将激活衰减系统');
-        } else {
-            console.log('✅ 宠物已激活，衰减系统正常运行');
-            const timeSinceLastUpdate = Date.now() - (petData.lastUpdateTime || Date.now());
-            const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
-            console.log(`⏰ 距离上次更新: ${hoursElapsed.toFixed(2)} 小时`);
-        }
 
-        console.log('\n🧪 测试命令:');
-        console.log('- feedPet() - 喂食（会激活衰减系统）');
-        console.log('- playWithPet() - 玩耍（会激活衰减系统）');
-        console.log('- hugPet() - 抱抱（会激活衰减系统）');
-        console.log('- updatePetStatus() - 手动更新状态（只有激活后才会衰减）');
-
-        return {
-            hasInteracted: petData.hasInteracted,
-            health: petData.health,
-            dataVersion: petData.dataVersion,
-            systemFixed: true
-        };
-    };
-
-    /**
-     * 🎉 宠物状态系统大修完成总结
-     */
-    window.showSystemFixSummary = function() {
-        console.log('🎉 宠物状态系统大修完成！');
-        console.log('\n✅ 已修复的问题:');
-        console.log('1. 时间系统核心Bug - 移除了savePetData中错误的lastUpdateTime更新');
-        console.log('2. 实现首次互动激活机制 - 新用户享受宽限期');
-        console.log('3. 优化新用户体验 - 初始健康值设为100');
-
-        console.log('\n🔧 修改内容:');
-        console.log('- petData.health: 35 → 100 (无压力开局)');
-        console.log('- 新增 petData.hasInteracted: false (激活标志)');
-        console.log('- 数据版本: 4.0 → 4.1');
-        console.log('- updatePetStatus() 添加激活检查');
-        console.log('- 所有互动函数添加激活逻辑');
-
-        console.log('\n🎮 用户体验:');
-        console.log('- 新用户: 宠物健康100，数值不会下降，直到首次互动');
-        console.log('- 首次互动: 显示欢迎消息，激活衰减系统');
-        console.log('- 激活后: 正常的时间衰减机制开始工作');
-
-        console.log('\n🧪 测试方法:');
-        console.log('- testPetStatusSystemFix() - 查看当前状态');
-        console.log('- 清除localStorage重新加载页面测试新用户体验');
-        console.log('- 进行互动观察激活消息和衰减开始');
-
-        return '🎉 宠物状态系统大修完成！';
-    };
 
     // -----------------------------------------------------------------
     // 2. Firebase 云端备份系统
@@ -515,7 +1041,7 @@ jQuery(async () => {
                 try {
                     if (firebase.analytics && FIREBASE_CONFIG.measurementId) {
                         firebase.analytics();
-                        console.log(`[${extensionName}] 📊 Firebase Analytics已启用`);
+                        console.log(`[${extensionName}] [STATS] Firebase Analytics已启用`);
                     }
                 } catch (analyticsError) {
                     console.warn(`[${extensionName}] ⚠️ Firebase Analytics初始化失败:`, analyticsError);
@@ -758,7 +1284,7 @@ jQuery(async () => {
                 throw new Error('Firebase未初始化');
             }
 
-            console.log(`[${extensionName}] 🔗 尝试连接码: ${code}`);
+            console.log(`[${extensionName}] [LINK] 尝试连接码: ${code}`);
 
             // 查找连接码
             const codeDoc = firebaseDb.collection('connectionCodes').doc(code.toUpperCase());
@@ -851,7 +1377,7 @@ jQuery(async () => {
             loadAISettings();
             loadCustomAvatar();
 
-            toastr.success('所有数据已从主设备同步完成！', '🎉 同步成功');
+            toastr.success('所有数据已从主设备同步完成！', '同步成功');
 
         } catch (error) {
             console.error(`[${extensionName}] ❌ 数据同步失败:`, error);
@@ -868,7 +1394,7 @@ jQuery(async () => {
         if (!currentUser || !firebaseStorage) {
             throw new Error('Firebase Storage未初始化或用户未登录');
         }
-        console.log(`[${extensionName}] ☁️ 上传头像到Firebase Storage...`);
+        console.log(`[${extensionName}] [CLOUD] 上传头像到Firebase Storage...`);
 
         const storageRef = firebaseStorage.ref().child(`avatars/${currentUser.uid}/avatar.png`);
 
@@ -876,7 +1402,7 @@ jQuery(async () => {
             // Firebase Storage的putString方法可以直接处理data_url
             const uploadTask = await storageRef.putString(dataUrl, 'data_url');
             const downloadURL = await uploadTask.ref.getDownloadURL();
-            
+
             console.log(`[${extensionName}] ✅ 头像上传成功，URL: ${downloadURL}`);
             return downloadURL;
         } catch (error) {
@@ -894,7 +1420,7 @@ jQuery(async () => {
                 throw new Error('用户未登录');
             }
 
-            console.log(`[${extensionName}] ☁️ 备份所有数据到Firebase...`);
+            console.log(`[${extensionName}] [CLOUD] 备份所有数据到Firebase...`);
 
             const userDoc = firebaseDb.collection('users').doc(currentUser.uid);
 
@@ -947,7 +1473,7 @@ jQuery(async () => {
             await userDoc.set(backupData, { merge: true });
 
             console.log(`[${extensionName}] ✅ 数据备份完成`);
-            toastr.success('所有数据已备份到云端！', '☁️ 备份成功');
+            toastr.success('所有数据已备份到云端！', '备份成功');
 
             return true;
         } catch (error) {
@@ -1109,7 +1635,7 @@ jQuery(async () => {
             case 'connected':
                 statusIcon.text('🟢');
                 statusText.text(message || '已连接');
-                initBtn.text('✅ 已连接').prop('disabled', true);
+                initBtn.text('已连接').prop('disabled', true);
                 primaryControls.show();
                 // 连接成功后仍然显示从设备输入框，方便其他设备连接
                 secondaryControls.show();
@@ -1125,7 +1651,7 @@ jQuery(async () => {
             case 'error':
                 statusIcon.text('🔴');
                 statusText.text(message || '连接错误');
-                initBtn.text('❌ 重试').prop('disabled', false);
+                initBtn.text('重试').prop('disabled', false);
                 primaryControls.hide();
                 managementControls.hide();
                 secondaryControls.show();
@@ -1155,7 +1681,7 @@ jQuery(async () => {
                 await signInAnonymously();
 
                 updateFirebaseStatus('connected', '已连接');
-                toastr.success('云端备份已连接！', '☁️ 连接成功');
+                toastr.success('云端备份已连接！', '连接成功');
 
             } catch (error) {
                 updateFirebaseStatus('error', '连接失败');
@@ -1179,7 +1705,7 @@ jQuery(async () => {
         $('#firebase-copy-code-btn').on('click', function() {
             const code = $('#firebase-connection-code-text').val();
             navigator.clipboard.writeText(code).then(() => {
-                toastr.success('连接码已复制！', '📋 复制成功');
+                toastr.success('连接码已复制！', '复制成功');
             }).catch(() => {
                 toastr.error('复制失败，请手动复制', '❌ 复制失败');
             });
@@ -1204,7 +1730,7 @@ jQuery(async () => {
                 await connectWithCode(code);
                 updateFirebaseStatus('connected', '已连接');
                 $('#firebase-connection-code-input').val('');
-                toastr.success('设备连接成功，数据已同步！', '🔗 连接成功');
+                toastr.success('设备连接成功，数据已同步！', '连接成功');
 
             } catch (error) {
                 updateFirebaseStatus('error', '连接失败');
@@ -1216,7 +1742,7 @@ jQuery(async () => {
         $('#firebase-backup-now-btn').on('click', async function() {
             try {
                 await backupAllDataToFirebase();
-                toastr.success('数据已备份到云端！', '☁️ 备份成功');
+                toastr.success('数据已备份到云端！', '备份成功');
             } catch (error) {
                 toastr.error(`备份失败: ${error.message}`, '❌ 备份失败');
             }
@@ -1353,6 +1879,17 @@ jQuery(async () => {
      */
     async function getAvailableAPIs() {
         try {
+            // 提前声明避免TDZ问题
+            const userApiUrls = {
+                openai: $('#ai-url-input').val() || 'https://api.openai.com/v1',
+                claude: 'https://api.anthropic.com/v1',
+                google: 'https://generativelanguage.googleapis.com/v1beta'
+            };
+            const userApiKeys = {
+                openai: $('#ai-key-input').val() || localStorage.getItem('openai_api_key'),
+                claude: localStorage.getItem('claude_api_key'),
+                google: localStorage.getItem('google_api_key')
+            };
             console.log(`[${extensionName}] 🎯 直接从后端API获取可用模型列表...`);
             const availableAPIs = [];
 
@@ -1433,20 +1970,12 @@ jQuery(async () => {
             ];
 
             // 尝试从用户配置中获取API密钥和URL
-            const userApiKeys = {
-                openai: $('#ai-key-input').val() || localStorage.getItem('openai_api_key'),
-                claude: localStorage.getItem('claude_api_key'),
-                google: localStorage.getItem('google_api_key')
-            };
+            // 已在前面声明
 
-            const userApiUrls = {
-                openai: $('#ai-url-input').val() || 'https://api.openai.com/v1',
-                claude: 'https://api.anthropic.com/v1',
-                google: 'https://generativelanguage.googleapis.com/v1beta'
-            };
+            // 移动到前面避免TDZ问题
 
             for (const provider of apiProviders) {
-                console.log(`[${extensionName}] 🔍 检查 ${provider.name}...`);
+                console.log(`[${extensionName}] [CHECK] 检查 ${provider.name}...`);
 
                 for (const endpoint of provider.endpoints) {
                     try {
@@ -1460,7 +1989,7 @@ jQuery(async () => {
                             console.log(`[${extensionName}] 🔑 使用API密钥进行认证`);
                         }
 
-                        console.log(`[${extensionName}] 🔗 尝试: ${endpoint}`);
+                        console.log(`[${extensionName}] [TRY] 尝试: ${endpoint}`);
 
                         const response = await fetch(endpoint, {
                             method: 'GET',
@@ -1570,7 +2099,7 @@ jQuery(async () => {
                     }
 
                     if (context.model) {
-                        console.log(`[${extensionName}] 🤖 SillyTavern当前模型: ${context.model}`);
+                        console.log(`[${extensionName}] [MODEL] SillyTavern当前模型: ${context.model}`);
                         availableAPIs.push({
                             type: 'current_model',
                             name: context.model,
@@ -1604,7 +2133,7 @@ jQuery(async () => {
                 return a.name.localeCompare(b.name);
             });
 
-            console.log(`[${extensionName}] 🎉 最终发现 ${uniqueAPIs.length} 个可用API:`, uniqueAPIs);
+            console.log(`[${extensionName}] [DONE] 最终发现 ${uniqueAPIs.length} 个可用API:`, uniqueAPIs);
 
             if (uniqueAPIs.length === 0) {
                 console.log(`[${extensionName}] ⚠️ 未发现任何API，可能的原因:`);
@@ -1621,8 +2150,8 @@ jQuery(async () => {
                     providerCount[api.provider] = (providerCount[api.provider] || 0) + 1;
                     statusCount[api.status] = (statusCount[api.status] || 0) + 1;
                 });
-                console.log(`[${extensionName}] 📊 按提供商:`, providerCount);
-                console.log(`[${extensionName}] 📊 按状态:`, statusCount);
+                console.log(`[${extensionName}] [STATS] 按提供商:`, providerCount);
+                console.log(`[${extensionName}] [STATS] 按状态:`, statusCount);
 
                 // 提供使用建议
                 const authRequiredCount = uniqueAPIs.filter(api => api.status === 'auth_required').length;
@@ -1683,7 +2212,7 @@ jQuery(async () => {
             <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
             <option value="gemini-pro">Gemini Pro</option>
             <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-            <option value="custom">🔧 自定义模型</option>
+            <option value="custom">自定义模型</option>
         `;
 
         // 按提供商分组动态模型
@@ -1752,7 +2281,7 @@ jQuery(async () => {
         const suggestedModels = models.filter(model => model.status === 'suggested').length;
 
         if (totalModels > 0) {
-            console.log(`[${extensionName}] 📊 模型统计: 总计${totalModels}个, 可用${availableModels}个, 推荐${suggestedModels}个`);
+            console.log(`[${extensionName}] [STATS] 模型统计: 总计${totalModels}个, 可用${availableModels}个, 推荐${suggestedModels}个`);
         }
     }
 
@@ -1813,7 +2342,7 @@ jQuery(async () => {
             apiKey: $('#ai-key-input').val(),
             apiModel: currentModel,
             lastTestTime: Date.now(),
-            lastTestResult: $('#ai-connection-status').text().includes('✅'),
+            lastTestResult: $('#ai-connection-status').text().includes('连接成功'),
             lastSyncTime: Date.now() // 添加同步时间戳
         };
 
@@ -1896,7 +2425,7 @@ jQuery(async () => {
                 // 显示上次测试结果
                 if (settings.lastTestResult && settings.lastTestTime) {
                     const timeAgo = Math.floor((Date.now() - settings.lastTestTime) / (1000 * 60));
-                    $('#ai-connection-status').text(`✅ 上次测试成功 (${timeAgo}分钟前)`).css('color', '#48bb78');
+                    $('#ai-connection-status').text(`上次测试成功 (${timeAgo}分钟前)`).css('color', '#48bb78');
                 }
 
                 console.log(`[${extensionName}] AI设置已加载:`, settings);
@@ -1957,96 +2486,11 @@ jQuery(async () => {
 
 
 
-    /**
-     * 🧪 测试API配置优化
-     */
-    window.testAPIConfig = function() {
-        console.log('🧪 测试API配置优化...');
-
-        // 测试API类型选项
-        const apiSelect = $('#ai-api-select');
-        const options = apiSelect.find('option');
-
-        console.log('📋 可用的API类型:');
-        options.each(function() {
-            const value = $(this).val();
-            const text = $(this).text();
-            if (value) {
-                console.log(`  ${value}: ${text}`);
-            }
-        });
-
-        // 测试默认URL设置
-        console.log('\n🔗 默认URL配置:');
-        const defaults = {
-            'openai': 'https://api.openai.com/v1',
-            'claude': 'https://api.anthropic.com/v1',
-            'google': 'https://generativelanguage.googleapis.com/v1beta',
-            'deepseek': 'https://api.deepseek.com/v1'
-        };
-
-        Object.entries(defaults).forEach(([type, url]) => {
-            console.log(`  ${type}: ${url}`);
-        });
-
-        console.log('\n✅ API配置优化验证完成');
-        console.log('💡 现在API类型名称更简洁，选择后会自动填入官方端点');
-    };
 
 
 
-    /**
-     * 测试中继服务器连接
-     */
-    window.testRelayServer = function() {
-        console.log('🧪 测试中继服务器连接...');
 
-        const relayServerUrl = 'http://154.12.38.33:3000/proxy';
 
-        // 构建测试请求
-        const testRequest = {
-            targetUrl: 'https://httpbin.org/get',
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: null
-        };
-
-        console.log(`🔗 测试中继服务器: ${relayServerUrl}`);
-        console.log(`🎯 测试目标: ${testRequest.targetUrl}`);
-
-        return fetch(relayServerUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(testRequest)
-        })
-        .then(response => {
-            console.log(`📡 中继服务器响应状态: ${response.status} ${response.statusText}`);
-
-            if (response.ok) {
-                return response.json();
-            } else {
-                throw new Error(`中继服务器错误: ${response.status} ${response.statusText}`);
-            }
-        })
-        .then(data => {
-            console.log('✅ 中继服务器测试成功！');
-            console.log('📦 响应数据:', data);
-            return true;
-        })
-        .catch(error => {
-            console.error('❌ 中继服务器测试失败:', error);
-            console.log('💡 请确保:');
-            console.log('  1. 中继服务器已启动 (node server.js)');
-            console.log('  2. 服务器IP地址正确: 154.12.38.33');
-            console.log('  3. 端口3000已开放');
-            console.log('  4. 防火墙允许访问');
-            return false;
-        });
-    };
 
     /**
      * 切换API配置输入框的显示状态 - 后端API版本
@@ -2073,7 +2517,7 @@ jQuery(async () => {
                     name: backendName
                 };
 
-                console.log(`[${extensionName}] 🔍 后端API信息:`, backendInfo);
+                console.log(`[${extensionName}] [CHECK] 后端API信息:`, backendInfo);
 
                 // 自动填充模型名称
                 $('#ai-model-input').val(backendName);
@@ -2094,7 +2538,7 @@ jQuery(async () => {
                     configMessage += '，请配置相应的URL和密钥';
                 }
 
-                toastr.info(configMessage, '🤖 模型已选择', { timeOut: 6000 });
+                toastr.info(configMessage, '模型已选择', { timeOut: 6000 });
             }
         } else if (apiType && apiType.startsWith('detected:')) {
             // 兼容旧格式
@@ -2198,10 +2642,10 @@ jQuery(async () => {
             const testPrompt = "请简单回复'测试成功'，不超过10个字。";
             console.log(`[${extensionName}] 开始测试API连接...`);
 
-            const response = await callCustomAPI(testPrompt, settings, 10000); // 10秒超时用于测试
+            const response = await callCustomAPI(testPrompt, settings, 25000); // 调整为25秒超时，提高跨网/中继成功率
 
             if (response && response.trim()) {
-                statusElement.text('✅ 连接成功').css('color', '#48bb78');
+                statusElement.text('连接成功').css('color', '#48bb78');
                 toastr.success(`API连接测试成功！类型: ${settings.apiType}，AI回复: ${response.substring(0, 50)}`);
 
                 // 保存测试结果
@@ -2212,7 +2656,7 @@ jQuery(async () => {
             }
 
         } catch (error) {
-            statusElement.text('❌ 连接失败').css('color', '#f56565');
+            statusElement.text('连接失败').css('color', '#f56565');
             toastr.error('连接测试失败: ' + error.message);
 
             // 提供详细的错误帮助
@@ -2281,13 +2725,16 @@ jQuery(async () => {
                     return await callDirectAPI(prompt, settings, timeout);
                 } catch (directError) {
                     console.log(`[${extensionName}] ⚠️ 自定义API直连失败，退回中继服务器: ${directError.message}`);
-                    return await callViaRelay(prompt, settings, timeout);
+                    // 自定义API在跨网或中转下耗时更久，这里给中继更充足的时间（不小于 25s）
+                    const relayTimeout = Math.max(timeout, 25000);
+                    return await callViaRelay(prompt, settings, relayTimeout);
                 }
             } else {
                 throw new Error(`不支持的API类型: ${settings.apiType}`);
             }
 
         } catch (error) {
+            logDetailedError('Unified AI call failed', { stage: 'callAI', apiType: settings?.apiType, apiUrl: settings?.apiUrl }, error);
             console.error(`[${extensionName}] ❌ 统一AI调用失败:`, error);
             throw error;
         }
@@ -2409,6 +2856,12 @@ jQuery(async () => {
             const timeoutId = setTimeout(() => controller.abort(), timeout);
 
             console.log(`[${extensionName}] 🚀 开始直连请求...`);
+            console.debug(`[${extensionName}] ▶️ Direct Request`, {
+                url: targetApiUrl,
+                headers: redactHeaders(headers),
+                body: previewBody(requestBody),
+                timeout
+            });
 
             const response = await fetch(targetApiUrl, {
                 method: 'POST',
@@ -2421,10 +2874,13 @@ jQuery(async () => {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
+                const err = new Error(`HTTP ${response.status}: ${errorText}`);
+                logDetailedError('Direct API response not ok', { url: targetApiUrl, status: response.status }, err);
+                throw err;
             }
 
             const data = await response.json();
+            console.debug(`[${extensionName}] ◀️ Direct Response`, { status: response.status, snippet: JSON.stringify(data).slice(0, 500) });
 
             // 6. 解析响应
             let aiReply;
@@ -2521,6 +2977,15 @@ jQuery(async () => {
             targetHeaders['anthropic-version'] = '2023-06-01';
         } else {
             targetHeaders['Authorization'] = `Bearer ${settings.apiKey}`;
+
+            console.debug(`[${extensionName}] ▶️ Relay Request`, {
+                relayServerUrl,
+                targetUrl: targetApiUrl,
+                headers: redactHeaders(targetHeaders),
+                body: previewBody(targetRequestBody),
+                timeout
+            });
+
         }
 
         // 构建请求体
@@ -2827,26 +3292,24 @@ ${currentPersonality}
             savePersonalitySettings('custom', customText);
         });
 
+
+
         // 启用/禁用虚拟宠物系统的事件监听器
         $("#virtual-pet-enabled-toggle").on('change', function() {
             const enabled = $(this).is(':checked');
-            localStorage.setItem(`${extensionName}-enabled`, enabled);
+            localStorage.setItem(STORAGE_KEY_ENABLED, enabled);
 
             if (enabled) {
                 toastr.success("虚拟宠物系统已启用");
-                // 如果当前没有显示宠物按钮，重新创建
-                if ($("#virtual-pet-button").length === 0) {
-                    createPetButton();
-                }
+                initializeFloatingButton();
             } else {
                 toastr.info("虚拟宠物系统已禁用");
-                // 隐藏宠物按钮
-                $("#virtual-pet-button").hide();
+                destroyFloatingButton();
             }
         });
 
-        // 加载启用状态
-        const enabled = localStorage.getItem(`${extensionName}-enabled`) !== 'false';
+        // 加载启用状态（默认启用，除非存储为 false）
+        const enabled = localStorage.getItem(STORAGE_KEY_ENABLED) !== 'false';
         $("#virtual-pet-enabled-toggle").prop('checked', enabled);
 
         // 加载AI设置
@@ -2889,6 +3352,9 @@ ${currentPersonality}
             // 清除之前的测试结果
             $('#ai-connection-status').text('未测试').css('color', '#888');
         });
+
+        // 移除扩展设置中的二级菜单按钮（按用户要求）
+        // 绑定已删除，改为放到主UI的设置按钮二级菜单中（后续实现）
 
         // 绑定API配置输入框事件
         $('#ai-url-input, #ai-key-input, #ai-model-input').on('input', function() {
@@ -2940,12 +3406,12 @@ ${currentPersonality}
                 // 处理从API获取的模型
                 const modelId = selectedValue.replace('api_model:', '');
                 $('#ai-model-input').hide().val(modelId);
-                toastr.success(`已选择API模型: ${modelId}`, '🤖 模型已选择', { timeOut: 2000 });
+                toastr.success(`已选择API模型: ${modelId}`, '模型已选择', { timeOut: 2000 });
                 console.log(`[${extensionName}] 选择了API模型: ${modelId}`);
             } else if (selectedValue) {
                 // 隐藏自定义输入框，使用选择的模型
                 $('#ai-model-input').hide().val(selectedValue);
-                toastr.success(`已选择模型: ${selectedValue}`, '🤖 模型已选择', { timeOut: 2000 });
+                toastr.success(`已选择模型: ${selectedValue}`, '模型已选择', { timeOut: 2000 });
             } else {
                 // 未选择，隐藏自定义输入框
                 $('#ai-model-input').hide().val('');
@@ -2961,7 +3427,7 @@ ${currentPersonality}
             const button = $(this);
             const originalText = button.text();
 
-            button.prop('disabled', true).text('🔄 获取中...');
+            button.prop('disabled', true).text('获取中...');
 
             try {
                 console.log(`[${extensionName}] 开始刷新模型列表...`);
@@ -2979,26 +3445,22 @@ ${currentPersonality}
                 console.log(`[${extensionName}] 从配置的API获取模型列表...`);
 
                 // 使用第三方API专用方法获取模型
-                const thirdPartyModels = await getThirdPartyModels();
-                if (thirdPartyModels.length > 0) {
-                    models = thirdPartyModels;
-                    console.log(`[${extensionName}] 从第三方API获取到 ${thirdPartyModels.length} 个模型`);
-                } else {
-                    // 备选：使用通用方法
-                    const userModels = await getUserConfiguredModels();
-                    if (userModels.length > 0) {
-                        models = userModels;
-                        console.log(`[${extensionName}] 从用户配置API获取到 ${userModels.length} 个模型`);
-                    }
+                // 统一改为 AIConnector.fetchModels，内部处理直连/中继/回退
+                try {
+                    const settings = loadAISettings();
+                    models = await AIConnector.fetchModels(settings);
+                } catch (e) {
+                    console.warn(`[${extensionName}] 获取模型失败: ${e.message}`);
+                    models = [];
                 }
 
                 // 更新模型下拉列表
                 updateModelDropdown(models);
 
                 if (models.length > 0) {
-                    toastr.success(`🎉 从您的API获取到 ${models.length} 个模型！`, '模型获取成功', { timeOut: 4000 });
+                    toastr.success(`从您的API获取到 ${models.length} 个模型！`, '模型获取成功', { timeOut: 4000 });
                 } else {
-                    toastr.warning('未能从您的API获取到模型，请检查URL和密钥配置', '⚠️ 模型获取失败', { timeOut: 4000 });
+                    toastr.warning('未能从您的API获取到模型，请检查URL和密钥配置', '模型获取失败', { timeOut: 4000 });
                 }
             } catch (error) {
                 console.error(`[${extensionName}] 刷新模型列表失败:`, error);
@@ -3050,7 +3512,7 @@ ${currentPersonality}
     // -----------------------------------------------------------------
     // 3. 宠物系统核心逻辑
     // -----------------------------------------------------------------
-    
+
     /**
      * 加载宠物数据（支持跨设备同步）
      */
@@ -3193,11 +3655,11 @@ ${currentPersonality}
     function applyFirstTimeRandomization() {
         console.log(`[${extensionName}] 应用首次打开随机化...`);
 
-        // 随机化数值，但不超过50，且保证一定的平衡性
-        petData.health = Math.floor(Math.random() * 20) + 30;      // 30-49
-        petData.happiness = Math.floor(Math.random() * 20) + 25;   // 25-44
-        petData.hunger = Math.floor(Math.random() * 20) + 30;      // 30-49
-        petData.energy = Math.floor(Math.random() * 20) + 25;      // 25-44
+        // 设置为固定的默认初始值，以符合新的初始化需求
+        petData.health = 100;
+        petData.happiness = 50;
+        // 保持当前饱食度（不在此处修改），默认来自初始为40
+        petData.energy = 50
 
         // 标记已经随机化过
         petData.hasBeenRandomized = true;
@@ -3246,7 +3708,7 @@ ${currentPersonality}
             }
         }
     }
-    
+
     /**
      * 保存宠物数据
      */
@@ -3509,7 +3971,7 @@ ${currentPersonality}
             console.warn(`[${extensionName}] 头像同步存储清除失败:`, error);
         }
     }
-    
+
     /**
      * 验证并修复数值范围
      */
@@ -3539,51 +4001,73 @@ ${currentPersonality}
     }
 
     /**
-     * 更新宠物状态（基于时间流逝）
+     * 数值系统自检与自修复（顶层定义，初始化即可用）
+     * @param {Object} options
+     * @param {boolean} options.autoFix 是否自动修复（默认 true）
+     * @param {boolean} options.save 是否在修复后保存（默认 true）
+     * @param {boolean} options.silent 是否静默（默认 true）
      */
-    function updatePetStatus() {
-        // 首次互动激活机制 - 只有在用户首次互动后才开始衰减
-        if (!petData.hasInteracted) {
-            return;
-        }
-
+    window.runValueSelfCheck = function(options = {}) {
+        const { autoFix = true, save = true, silent = true } = options;
+        const issues = [];
+        const fixes = [];
+        const before = JSON.parse(JSON.stringify(petData));
         const now = Date.now();
-        const timeSinceLastUpdate = now - (petData.lastUpdateTime || now);
-        const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
 
-        // 防止异常大的时间差（超过24小时的按24小时计算）
-        const safeHoursElapsed = Math.min(hoursElapsed, 24);
-
-        // 随时间降低的属性（减缓衰减速度）
-        if (safeHoursElapsed > 0.2) { // 每12分钟更新一次
-            petData.hunger = Math.max(0, petData.hunger - safeHoursElapsed * 0.8);
-            petData.energy = Math.max(0, petData.energy - safeHoursElapsed * 0.6);
-
-            // 饥饿和疲劳影响健康和快乐（减缓影响）
-            if (petData.hunger < 20) {
-                petData.health = Math.max(0, petData.health - safeHoursElapsed * 1);
-                petData.happiness = Math.max(0, petData.happiness - safeHoursElapsed * 0.8);
+        // 1) 范围与类型
+        const keys = ['health','happiness','hunger','energy','experience','level'];
+        keys.forEach(k => {
+            const v = petData[k];
+            if (typeof v !== 'number' || isNaN(v)) {
+                issues.push(`${k} 非数字: ${v}`);
+                if (autoFix) { petData[k] = (k === 'level') ? 1 : 0; fixes.push(`修复 ${k} → ${petData[k]}`); }
             }
+        });
 
-            if (petData.energy < 20) {
-                petData.happiness = Math.max(0, petData.happiness - safeHoursElapsed * 0.5);
-            }
+        // 2) 范围 clamp
+        const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
+        ['health','happiness','hunger','energy'].forEach(k => {
+            const old = petData[k];
+            const nv = clamp(Number(old)||0, 0, 100);
+            if (nv !== old) { issues.push(`${k} 越界: ${old} → ${nv}`); if (autoFix) { petData[k] = nv; fixes.push(`修复 ${k} → ${nv}`); } }
+        });
+        if (petData.level < 1) { issues.push(`level < 1: ${petData.level}`); if (autoFix) { petData.level = 1; fixes.push('修复 level → 1'); } }
+        if (petData.experience < 0) { issues.push(`experience < 0: ${petData.experience}`); if (autoFix) { petData.experience = 0; fixes.push('修复 experience → 0'); } }
 
-            // 更新时间戳（只有在实际进行衰减后才更新）
-            petData.lastUpdateTime = now;
+        // 3) 时间戳有效性
+        ['lastUpdateTime','lastFeedTime','lastPlayTime','lastSleepTime'].forEach(tk => {
+            const tv = petData[tk];
+            if (!tv || typeof tv !== 'number' || tv > now) { issues.push(`${tk} 无效: ${tv}`); if (autoFix) { petData[tk] = now; fixes.push(`修复 ${tk} → now`); } }
+        });
 
-            // 验证并修复数值
-            validateAndFixValues();
+        // 4) 生死一致性
+        if (petData.isAlive === false && petData.health > 0) { issues.push('死亡标记与健康矛盾'); if (autoFix) { petData.isAlive = true; fixes.push('修复 isAlive → true'); } }
+        if (petData.isAlive !== false && petData.health <= 0) { issues.push('健康<=0但未标记死亡'); if (autoFix) { petData.isAlive = false; petData.deathReason = petData.deathReason || 'sickness'; fixes.push('修复 isAlive → false'); } }
 
-            savePetData();
+        // 5) 辅助：首次互动标记
+        if (!petData.hasInteracted && !petData.lastUpdateTime) { petData.lastUpdateTime = now; fixes.push('补充 lastUpdateTime'); }
 
-            // 检查是否需要发送通知
-            checkAndSendNotifications();
-        }
+        // 6) 统一校验
+        validateAndFixValues();
+        if (save && autoFix && fixes.length) savePetData();
+
+        const after = JSON.parse(JSON.stringify(petData));
+        if (!silent) { console.log('[SelfCheck] issues:', issues); console.log('[SelfCheck] fixes:', fixes); console.log('[SelfCheck] before→after:', before, after); }
+        return { issues, fixes, before, after };
+    };
+
+    // 去重的定时器守卫
+    if (!window.__vpsSelfCheckInterval) {
+        window.__vpsSelfCheckInterval = setInterval(() => {
+            try { window.runValueSelfCheck({ autoFix: true, save: true, silent: true }); } catch (e) {}
+        }, 5 * 60 * 1000);
     }
-    
 
-    
+
+
+
+
+
     /**
      * 获得经验值
      */
@@ -3600,7 +4084,7 @@ ${currentPersonality}
             const coinReward = petData.level * 10;
             gainCoins(coinReward);
 
-            toastr.success(`🎉 ${petData.name} 升级了！现在是 ${petData.level} 级！获得 ${coinReward} 金币奖励！`);
+            toastr.success(`${petData.name} 升级了！现在是 ${petData.level} 级！获得 ${coinReward} 金币奖励！`);
         }
     }
 
@@ -3633,6 +4117,105 @@ ${currentPersonality}
         const now = Date.now();
         const lastNotification = localStorage.getItem(`${extensionName}-last-notification`) || 0;
 
+
+    /**
+     * 数值系统自检与自修复
+     * - 检查数值范围、时间戳有效性、冷却时间倒退、死亡状态一致性等
+     * - 可选自动修复并保存
+     * @param {Object} options
+     * @param {boolean} options.autoFix 是否自动修复（默认 true）
+     * @param {boolean} options.save 是否在修复后保存（默认 true）
+     * @param {boolean} options.silent 是否静默（默认 true，控制台简要输出）
+     * @returns {{issues: string[], fixes: string[], before: any, after: any}}
+     */
+    window.runValueSelfCheck = function(options = {}) {
+        const {
+            autoFix = true,
+            save = true,
+            silent = true,
+        } = options;
+
+        const issues = [];
+        const fixes = [];
+        const before = JSON.parse(JSON.stringify(petData));
+
+        const now = Date.now();
+        // 1) 范围与类型
+        const keys = ['health','happiness','hunger','energy','experience','level'];
+        keys.forEach(k => {
+            const v = petData[k];
+            if (typeof v !== 'number' || isNaN(v)) {
+                issues.push(`${k} 非数字: ${v}`);
+                if (autoFix) {
+                    if (k === 'level') petData[k] = 1; else petData[k] = 0;
+                    fixes.push(`修复 ${k} → ${petData[k]}`);
+                }
+            }
+        });
+
+        // 2) 范围 clamp
+        const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
+        const ranged = ['health','happiness','hunger','energy'];
+        ranged.forEach(k => {
+            const old = petData[k];
+            const nv = clamp(Number(old)||0, 0, 100);
+            if (nv !== old) {
+                issues.push(`${k} 越界: ${old} → ${nv}`);
+                if (autoFix) {
+                    petData[k] = nv; fixes.push(`修复 ${k} → ${nv}`);
+                }
+            }
+        });
+        if (petData.level < 1) { issues.push(`level < 1: ${petData.level}`); if (autoFix) { petData.level = 1; fixes.push('修复 level → 1'); } }
+        if (petData.experience < 0) { issues.push(`experience < 0: ${petData.experience}`); if (autoFix) { petData.experience = 0; fixes.push('修复 experience → 0'); } }
+
+        // 3) 时间戳有效性与单调性
+        const timeKeys = ['lastUpdateTime','lastFeedTime','lastPlayTime','lastSleepTime'];
+        timeKeys.forEach(tk => {
+            const tv = petData[tk];
+            if (!tv || typeof tv !== 'number' || tv > now) {
+                issues.push(`${tk} 无效: ${tv}`);
+                if (autoFix) { petData[tk] = now; fixes.push(`修复 ${tk} → now`); }
+            }
+        });
+        // 冷却时间倒退（未来时间）已在 tv>now 分支修复
+
+        // 4) 死亡状态一致性
+        if (petData.isAlive === false && petData.health > 0) {
+            issues.push('死亡标记与健康矛盾');
+            if (autoFix) { petData.isAlive = true; fixes.push('修复 isAlive → true'); }
+        }
+        if (petData.isAlive !== false && petData.health <= 0) {
+            issues.push('健康<=0但未标记死亡');
+            if (autoFix) { petData.isAlive = false; petData.deathReason = petData.deathReason || 'sickness'; fixes.push('修复 isAlive → false'); }
+        }
+
+        // 5) 辅助：首次互动标记逻辑（若从未互动但有历史时间，补上lastUpdateTime）
+        if (!petData.hasInteracted && !petData.lastUpdateTime) {
+            petData.lastUpdateTime = now; fixes.push('补充 lastUpdateTime');
+        }
+
+        // 6) 统一校验
+        validateAndFixValues();
+
+        if (save && (autoFix && (fixes.length > 0))) {
+            savePetData();
+        }
+
+        const after = JSON.parse(JSON.stringify(petData));
+        if (!silent) {
+            console.log('[SelfCheck] issues:', issues);
+            console.log('[SelfCheck] fixes:', fixes);
+            console.log('[SelfCheck] before→after:', before, after);
+        }
+        return { issues, fixes, before, after };
+    };
+
+    // 每5分钟自动自检一次（静默+自动修复+保存）
+    setInterval(() => {
+        try { window.runValueSelfCheck({ autoFix: true, save: true, silent: true }); } catch(e) { /* ignore */ }
+    }, 5 * 60 * 1000);
+
         // 限制通知频率，至少间隔10分钟
         if (now - lastNotification < 600000) return;
 
@@ -3661,11 +4244,11 @@ ${currentPersonality}
             localStorage.setItem(`${extensionName}-last-notification`, now);
         }
     }
-    
-    // ----------------------------------------------------------------- 
+
+    // -----------------------------------------------------------------
     // 3. 弹窗和视图管理
     // -----------------------------------------------------------------
-    
+
     /**
      * 打开弹窗并显示主视图
      */
@@ -3720,18 +4303,17 @@ ${currentPersonality}
                     height: auto !important;
                     max-width: ${containerMaxWidth} !important;
                     max-height: calc(100vh - 60px) !important;
-                    background: ${candyColors.background} !important;
+                    background: ${candyColors.backgroundSolid} !important;
                     color: ${candyColors.textPrimary} !important;
-                    border: 4px solid ${candyColors.border} !important;
-                    border-radius: 8px !important;
+                    border: 3px solid ${candyColors.border} !important;
+                    border-radius: 24px !important;
                     padding: ${containerPadding} !important;
                     overflow-y: auto !important;
                     -webkit-overflow-scrolling: touch !important;
-                    box-shadow: 4px 4px 0px ${candyColors.shadow} !important;
-                    font-family: 'Courier New', monospace !important;
-                    image-rendering: pixelated !important;
-                    image-rendering: -moz-crisp-edges !important;
-                    image-rendering: crisp-edges !important;
+                    box-shadow: 0 20px 40px ${candyColors.shadowGlow}, 0 8px 16px ${candyColors.shadow} !important;
+                    font-family: 'Nunito', 'Quicksand', 'Baloo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+                    backdrop-filter: blur(10px) !important;
+                    -webkit-backdrop-filter: blur(10px) !important;
                     ${iosTransform}
                 ">
                     ${generateUnifiedUI()}
@@ -3773,7 +4355,7 @@ ${currentPersonality}
         // 更新弹窗状态
         isPopupOpen = true;
     }
-    
+
     /**
      * 关闭弹窗 - iOS优化版本
      */
@@ -3960,7 +4542,22 @@ ${currentPersonality}
                 });
             }
         });
-        $('.pet-level').text('Lv.' + petData.level);
+        const levelText = petData.isAlive
+            ? `${LIFE_STAGES[petData.lifeStage]?.name || '未知'} Lv.${petData.level}`
+            : '已死亡';
+        $('.pet-level').each(function(){
+            $(this)
+              .text(levelText)
+              .css({
+                display: 'block',
+                textAlign: 'center',
+                margin: '0 auto',
+                color: (typeof candyColors !== 'undefined' && candyColors.textSecondary) ? candyColors.textSecondary : '#666666',
+                fontSize: '1em',
+                fontWeight: 'normal',
+                letterSpacing: '0'
+              });
+        });
     }
 
     /**
@@ -4008,8 +4605,8 @@ ${currentPersonality}
                     border-radius: 50% !important;
                 ">`);
             } else {
-                // 显示默认爪子图案
-                button.html('🐾');
+                // 显示默认SVG图标
+                button.html(getFeatherIcon('heart', { color: '#FF69B4', size: 20, strokeWidth: 2 }));
             }
         }
     }
@@ -4028,13 +4625,13 @@ ${currentPersonality}
             showPopup();
         }
     }
-    
+
     /**
      * 切换到指定视图
      */
     function switchView(viewIdToShow) {
         console.log(`[${extensionName}] 切换视图，目标视图: #${viewIdToShow}`);
-        
+
         // 隐藏所有 .pet-view 元素
         $('.pet-view').hide();
 
@@ -4047,7 +4644,7 @@ ${currentPersonality}
             console.error(`[${extensionName}] 错误: 视图 #${viewIdToShow} 不存在`);
         }
     }
-    
+
     /**
      * 显示主视图
      */
@@ -4055,7 +4652,7 @@ ${currentPersonality}
         switchView('pet-main-view');
         renderPetStatus();
     }
-    
+
     /**
      * 显示宠物详情视图
      */
@@ -4063,7 +4660,7 @@ ${currentPersonality}
         switchView('pet-detail-view');
         renderPetDetails();
     }
-    
+
     /**
      * 显示设置视图
      */
@@ -4074,76 +4671,34 @@ ${currentPersonality}
 
     // showChatView函数已被移除，现在使用openChatModal()替代
 
-    /**
-     * 测试聊天模态弹窗功能 - 更新为商店风格版本
-     */
-    window.testChatModal = function() {
-        console.log(`[${extensionName}] 🧪 测试新版聊天模态弹窗功能...`);
-
+    // 打开扩展设置面板并定位到虚拟宠物系统（如果容器存在）
+    function openSettings() {
         try {
-            // 测试打开聊天模态弹窗
-            console.log(`[${extensionName}] 1. 测试打开商店风格聊天模态弹窗...`);
-            openChatModal();
-
-            // 检查模态弹窗是否创建成功
-            setTimeout(() => {
-                const modal = $('#chat-modal-overlay');
-                const container = $('#chat-modal-container');
-                const input = $('#chat-modal-input');
-                const sendBtn = $('#chat-modal-send-btn');
-                const messages = $('#chat-modal-messages');
-                const closeBtn = $('#chat-modal-close-btn');
-
-                console.log(`[${extensionName}] 2. 检查DOM元素...`);
-                console.log(`   - 模态弹窗遮罩: ${modal.length > 0 ? '✅' : '❌'}`);
-                console.log(`   - 弹窗容器: ${container.length > 0 ? '✅' : '❌'}`);
-                console.log(`   - 输入框: ${input.length > 0 ? '✅' : '❌'}`);
-                console.log(`   - 发送按钮: ${sendBtn.length > 0 ? '✅' : '❌'}`);
-                console.log(`   - 消息容器: ${messages.length > 0 ? '✅' : '❌'}`);
-                console.log(`   - 关闭按钮: ${closeBtn.length > 0 ? '✅' : '❌'}`);
-
-                // 检查样式应用
-                console.log(`[${extensionName}] 3. 检查商店风格样式...`);
-                const modalBg = modal.css('background-color');
-                const containerBg = container.css('background');
-                console.log(`   - 遮罩背景: ${modalBg.includes('rgba') ? '✅' : '❌'}`);
-                console.log(`   - 容器渐变: ${containerBg.includes('gradient') || containerBg.includes('linear') ? '✅' : '❌'}`);
-                console.log(`   - z-index: ${modal.css('z-index') === '1000001' ? '✅' : '❌'}`);
-
-                // 检查API配置
-                const config = getAIConfiguration();
-                console.log(`[${extensionName}] 4. 检查API配置...`);
-                console.log(`   - API类型: ${config.type || '未配置'}`);
-                console.log(`   - API URL: ${config.url || '未配置'}`);
-                console.log(`   - API密钥: ${config.key ? '已配置' : '未配置'}`);
-                console.log(`   - 配置完整: ${config.isConfigured ? '✅' : '❌'}`);
-
-                // 测试交互功能
-                console.log(`[${extensionName}] 5. 测试交互功能...`);
-                if (input.length > 0) {
-                    input.focus();
-                    console.log(`   - 输入框聚焦: ✅`);
+            const $target = $("#extensions_settings2").length ? $("#extensions_settings2") : $("#extensions_settings");
+            let $panel = $("#virtual-pet-settings");
+            if ($target.length) {
+                if ($panel.length) {
+                    if (!$panel.closest($target).length) { $target.append($panel); }
+                    const $drawer = $panel.find('.inline-drawer');
+                    const $toggle = $drawer.find('.inline-drawer-toggle');
+                    const $content = $drawer.find('.inline-drawer-content');
+                    if ($content.length && $content.is(':hidden')) { $toggle.trigger('click'); }
+                    $panel[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    try { toastr && toastr.info('已定位到“虚拟宠物系统”扩展设置'); } catch{}
+                    return;
                 }
-
-                // 测试添加消息功能
-                console.log(`[${extensionName}] 6. 测试消息添加功能...`);
-                addMessageToChat('user', '这是一条测试消息');
-                addMessageToChat('pet', '这是宠物的回复消息');
-
-                const messageCount = messages.children().length;
-                console.log(`   - 消息数量: ${messageCount} (应该 >= 3，包括欢迎消息)`);
-
-                console.log(`[${extensionName}] 🎉 新版聊天模态弹窗测试完成！`);
-                console.log(`[${extensionName}] 💡 提示: 现在可以尝试在聊天框中输入消息进行测试`);
-                console.log(`[${extensionName}] 🎨 新特性: 商店风格的渐变背景和内联样式`);
-                console.log(`[${extensionName}] 🔧 测试关闭: 点击关闭按钮或外部区域关闭弹窗`);
-
-            }, 100);
-
-        } catch (error) {
-            console.error(`[${extensionName}] ❌ 聊天模态弹窗测试失败:`, error);
+            }
+            // 若未找到容器或面板，退回弹窗内设置视图
+            showSettingsView();
+            try { toastr && toastr.info('未找到扩展设置面板，已打开弹窗内的设置视图'); } catch{}
+        } catch (e) {
+            console.warn('openSettings failed, fallback to in-popup settings', e);
+            try { showSettingsView(); } catch{}
         }
-    };
+    }
+
+
+
 
     /**
      * 处理聊天按钮点击
@@ -4155,13 +4710,19 @@ ${currentPersonality}
         const config = getAIConfiguration();
         if (!config.isConfigured) {
             toastr.warning('请先在扩展设置中配置AI API信息（类型、URL和密钥）', '聊天功能需要配置', { timeOut: 5000 });
+            // 仍允许打开聊天弹窗，但会显示配置提示
+            openChatModal();
+            try { migrateChatFromLocalStorage && migrateChatFromLocalStorage(); } catch(e) {}
             return;
         }
-
+        // 打开聊天模态并迁移历史（如需要）
+        openChatModal();
+        try { migrateChatFromLocalStorage && migrateChatFromLocalStorage(); } catch(e) {}
+        return;
         // 打开独立的聊天模态弹窗
         openChatModal();
     }
-    
+
     // -----------------------------------------------------------------
     // 3.5. 聊天功能逻辑
     // -----------------------------------------------------------------
@@ -4224,7 +4785,7 @@ ${currentPersonality}
         // 添加配置提示
         const configHint = `
             <div class="chat-config-hint" style="text-align: center; padding: 20px;">
-                <div style="font-size: 3em; margin-bottom: 15px;">🤖</div>
+                <div style="font-size: 3em; margin-bottom: 15px;">${getFeatherIcon('cpu', { color: candyColors.primary, size: 48 })}</div>
                 <h3 style="color: var(--primary-accent-color); margin-bottom: 15px;">需要配置AI API</h3>
                 <p style="margin-bottom: 15px; line-height: 1.5;">
                     要与宠物聊天，需要先配置AI API。<br>
@@ -4232,16 +4793,16 @@ ${currentPersonality}
                 <div style="background: #f0f8ff; padding: 15px; border-radius: 8px; margin-bottom: 15px; text-align: left;">
                     <div style="font-weight: bold; color: #007bff; margin-bottom: 10px;">📋 配置步骤：</div>
                     <ol style="margin: 0; padding-left: 20px; line-height: 1.6;">
-                        <li>点击右上角的 <strong>扩展</strong> 按钮 (🧩)</li>
-                        <li>找到 <strong>🐾 虚拟宠物系统</strong> 设置</li>
-                        <li>在 <strong>🤖 AI API 配置</strong> 部分填写：
+                        <li>点击右上角的 <strong>扩展</strong> 按钮</li>
+                        <li>找到 <strong>虚拟宠物系统</strong> 设置</li>
+                        <li>在 <strong>AI API 配置</strong> 部分填写：
                             <ul style="margin-top: 5px;">
                                 <li>选择API类型（如OpenAI、Claude等）</li>
                                 <li>填写API URL</li>
                                 <li>填写API密钥</li>
                             </ul>
                         </li>
-                        <li>点击 <strong>🔗 测试连接</strong> 验证配置</li>
+                        <li>点击 <strong>测试连接</strong> 验证配置</li>
                     </ol>
                 </div>
                 <div style="background: #fff3cd; padding: 12px; border-radius: 6px; margin-bottom: 20px; text-align: left; border-left: 4px solid #ffc107;">
@@ -4291,8 +4852,8 @@ ${currentPersonality}
         // 启用聊天输入
         $('#chat-input').prop('disabled', false).attr('placeholder', '输入消息...');
 
-        // 加载聊天历史
-        loadChatHistory();
+        // 加载聊天历史（IndexedDB，会话持久化）
+        loadChatHistoryFromDB && loadChatHistoryFromDB();
     }
 
     /**
@@ -4316,6 +4877,12 @@ ${currentPersonality}
             $('#send-chat-btn').prop('disabled', !hasText || isAIResponding);
         });
     }
+
+        // 聊天消息中点击用户头像 → 打开头像选择器
+        $('#chat-modal-messages').off('click.vp-avatar', '.message-avatar[data-sender="user"]').on('click.vp-avatar', '.message-avatar[data-sender="user"]', function(){
+            if (typeof window.openUserAvatarSelector === 'function') window.openUserAvatarSelector();
+        });
+
 
     /**
      * 构建聊天Prompt
@@ -4454,12 +5021,128 @@ ${currentPersonality}
         }
     }
 
-    /**
-     * 添加消息到聊天窗口 - 适配新的商店风格模态弹窗
-     * @param {string} sender 'user' 或 'pet'
-     * @param {string} message 消息内容
-     */
-    function addMessageToChat(sender, message) {
+/**
+ * 聊天存储与会话（轻量本地版，避免初始化中断）
+ */
+function getChatSessions(){
+    try { return JSON.parse(localStorage.getItem('virtual-pet-chat-sessions')||'["default"]'); } catch { return ['default']; }
+}
+function saveChatSessions(list){
+    try { localStorage.setItem('virtual-pet-chat-sessions', JSON.stringify(Array.from(new Set(list)))); } catch{}
+}
+function getCurrentChatSessionId(){
+    return localStorage.getItem('virtual-pet-chat-session-id') || 'default';
+}
+function setCurrentChatSessionId(id){
+    try { localStorage.setItem('virtual-pet-chat-session-id', id); } catch{}
+}
+(function ensureDefaultSession(){
+    const list = getChatSessions();
+    if (!list.includes('default')) { list.unshift('default'); saveChatSessions(list); }
+})();
+
+async function migrateChatFromLocalStorage(){
+    try{
+        const saved = localStorage.getItem('virtual-pet-chat-history');
+        if (!saved) return;
+        // 轻量版本直接沿用同一键名，无需迁移
+    }catch(e){ console.warn('migrateChatFromLocalStorage failed', e); }
+}
+
+async function dbSaveMessage(record){
+    // 轻量本地版：由 addMessageToChat 已经更新 chatHistory；此处只负责落盘
+    try { localStorage.setItem('virtual-pet-chat-history', JSON.stringify(chatHistory)); } catch{}
+}
+async function dbListMessages(sessionId, limit = 1000){
+    try{
+        const saved = JSON.parse(localStorage.getItem('virtual-pet-chat-history')||'[]');
+        const rows = saved.filter(x=>!sessionId || x.sessionId===sessionId).sort((a,b)=>a.timestamp-b.timestamp);
+        return limit ? rows.slice(-limit) : rows;
+    }catch{ return []; }
+}
+async function dbClearSession(sessionId){
+    try{ chatHistory = []; localStorage.setItem('virtual-pet-chat-history','[]'); }catch{}
+}
+async function dbClearAll(){
+    try{ localStorage.removeItem('virtual-pet-chat-history'); }catch{}
+}
+async function loadChatHistoryFromDB(){
+    // 轻量本地版：复用现有的本地加载与渲染
+    try { loadChatHistory(); } catch(e) { console.warn('loadChatHistoryFromDB failed', e); }
+}
+async function clearCurrentChatHistory(){
+    try{
+        await dbClearSession(getCurrentChatSessionId());
+        const container = $('#chat-modal-messages').length ? $('#chat-modal-messages') : $('#chat-messages-container');
+        if (container && container.length) container.empty();
+        toastr && toastr.success('已清空当前会话聊天历史');
+    }catch(e){ console.error('清空聊天历史失败', e); }
+}
+async function createNewChatSession(){
+    const id = prompt('请输入新的会话名称（例如：默认/任务/闲聊）', '会话-'+Date.now());
+    if (!id) return;
+    const list = getChatSessions();
+    if (!list.includes(id)) { list.push(id); saveChatSessions(list); }
+    setCurrentChatSessionId(id);
+    chatHistory = [];
+    try { localStorage.setItem('virtual-pet-chat-history','[]'); } catch{}
+    try { await loadChatHistoryFromDB(); } catch{}
+    // 统一注入聊天样式（仅一次）
+    function injectChatStyles(){
+        if (document.getElementById('vp-chat-styles')) return;
+        const css = `
+        #chat-modal-overlay{position:fixed;inset:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:1000001;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+        #chat-modal-container{background:${candyColors.backgroundSolid};color:${candyColors.textPrimary};width:100%;max-width:420px;max-height:72vh;display:flex;flex-direction:column;border:3px solid ${candyColors.border};border-radius:16px;box-shadow:0 20px 40px ${candyColors.shadowGlow},0 8px 16px ${candyColors.shadow};overflow:hidden}
+        .vp-chat-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid ${candyColors.border}}
+        .vp-chat-header h3{margin:0;font-size:1.1em;color:${candyColors.textPrimary}}
+        #chat-modal-messages{flex:1;overflow-y:auto;padding:12px 16px;background:${candyColors.background}}
+        #chat-modal-input-area{display:flex;gap:10px;align-items:center;padding:12px 16px;border-top:1px solid ${candyColors.border};background:${candyColors.backgroundSolid}}
+        #chat-modal-input{flex:1;border:1px solid ${candyColors.border};border-radius:12px;padding:10px 12px;font-size:14px;background:#fff;color:${candyColors.textPrimary};outline:none}
+        #chat-modal-input:focus{border-color:${candyColors.primary};box-shadow:0 0 0 3px rgba(0,0,0,0.04)}
+        #chat-modal-send-btn{background:${candyColors.buttonPrimary};color:${candyColors.textPrimary};border:2px solid ${candyColors.border};border-radius:12px;padding:10px 14px;cursor:pointer;font-weight:600}
+        #chat-modal-send-btn:disabled{opacity:.5;cursor:not-allowed}
+        .chat-message{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px}
+        .chat-message.user-message{flex-direction:row-reverse}
+        .message-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${candyColors.screen};border:2px solid #fff;overflow:hidden;flex-shrink:0}
+        .message-bubble{max-width:75%;padding:10px 12px;border:1px solid ${candyColors.border};border-radius:12px;background:#fff;color:${candyColors.textPrimary};box-shadow:0 2px 6px rgba(0,0,0,.06)}
+        .user-message .message-bubble{background:${candyColors.info};color:${candyColors.textWhite}}
+        .message-time{margin-top:4px;font-size:.75em;color:${candyColors.textLight};text-align:right}
+        .typing-dots{display:inline-flex;gap:4px;align-items:center}
+        .typing-dots i{width:6px;height:6px;border-radius:50%;background:${candyColors.textLight};display:inline-block;animation:vpTyping 1.4s infinite ease-in-out}
+        .typing-dots i:nth-child(2){animation-delay:.2s}
+        .typing-dots i:nth-child(3){animation-delay:.4s}
+        @keyframes vpTyping{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+        `;
+        const style = document.createElement('style');
+        style.id = 'vp-chat-styles';
+        style.textContent = css;
+        document.head.appendChild(style);
+    }
+
+    // 渲染聊天模态的HTML骨架
+    function renderChatModal(){
+        return `
+        <div id="chat-modal-overlay">
+          <div id="chat-modal-container">
+            <div class="vp-chat-header">
+              <h3>💬 与 ${escapeHtml(petData.name)} 聊天</h3>
+              <button id="chat-modal-close-btn" aria-label="关闭" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:${candyColors.textPrimary}">×</button>
+            </div>
+            <div id="chat-modal-messages"></div>
+            <div id="chat-modal-input-area">
+              <textarea id="chat-modal-input" placeholder="输入消息... (Enter 发送 / Shift+Enter 换行)" rows="2" maxlength="1000"></textarea>
+              <button id="chat-modal-send-btn">发送</button>
+            </div>
+          </div>
+        </div>`;
+    }
+    toastr && toastr.success('已创建新会话');
+}
+
+/**
+ * 添加消息到聊天窗口 - 适配新的商店风格模态弹窗
+ */
+    async function addMessageToChat(sender, message) {
         const container = $('#chat-modal-messages');
         if (container.length === 0) {
             console.log(`[${extensionName}] 聊天消息容器不存在，无法添加消息`);
@@ -4472,7 +5155,9 @@ ${currentPersonality}
 
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const isUser = sender === 'user';
-        const avatar = isUser ? '👤' : getPetEmoji();
+        const avatar = isUser
+            ? (customUserAvatarData ? `<img src="${customUserAvatarData}" alt="用户头像" style="width:100% !important;height:100% !important;object-fit:cover !important;border-radius:50% !important;">` : getFeatherIcon('user', { color: '#ffffff', size: 18 }))
+            : (customAvatarData ? getAvatarContent() : getDefaultPetIcon(18, '#ffd700'));
 
         // 响应式尺寸参数
         const avatarSize = isSmallMobile ? '32px' : isMobile ? '36px' : '40px';
@@ -4484,38 +5169,8 @@ ${currentPersonality}
 
         // 处理打字指示器
         const messageContent = message === '...'
-            ? `<div style="
-                display: flex !important;
-                align-items: center !important;
-                gap: 4px !important;
-                padding: 8px 0 !important;
-            ">
-                <span style="
-                    width: 8px !important;
-                    height: 8px !important;
-                    background: #A0AEC0 !important;
-                    border-radius: 50% !important;
-                    animation: typingBounce 1.4s infinite ease-in-out !important;
-                    animation-delay: 0s !important;
-                "></span>
-                <span style="
-                    width: 8px !important;
-                    height: 8px !important;
-                    background: #A0AEC0 !important;
-                    border-radius: 50% !important;
-                    animation: typingBounce 1.4s infinite ease-in-out !important;
-                    animation-delay: 0.2s !important;
-                "></span>
-                <span style="
-                    width: 8px !important;
-                    height: 8px !important;
-                    background: #A0AEC0 !important;
-                    border-radius: 50% !important;
-                    animation: typingBounce 1.4s infinite ease-in-out !important;
-                    animation-delay: 0.4s !important;
-                "></span>
-            </div>`
-            : escapeHtml(message);
+            ? `<div class="typing-dots"><i></i><i></i><i></i></div>`
+            : (isUser ? escapeHtml(message) : formatMarkdown(message));
 
         // 学习商店风格的消息HTML结构
         const messageHtml = `
@@ -4526,19 +5181,20 @@ ${currentPersonality}
                 ${isUser ? 'flex-direction: row-reverse !important;' : ''}
                 animation: messageSlideIn 0.3s ease-out !important;
             ">
-                <div style="
+                <div class="message-avatar" data-sender="${isUser ? 'user' : 'pet'}" style="
                     width: ${avatarSize} !important;
                     height: ${avatarSize} !important;
                     border-radius: 50% !important;
                     display: flex !important;
                     align-items: center !important;
                     justify-content: center !important;
-                    font-size: ${avatarFontSize} !important;
                     background: linear-gradient(145deg, ${isUser ? '#FF9EC7, #FF7FB3' : '#A8E6CF, #87CEEB'}) !important;
                     border: 2px solid white !important;
                     box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
                     flex-shrink: 0 !important;
-                ">${avatar}</div>
+                    overflow: hidden !important;
+                    cursor: ${isUser ? 'pointer' : 'default'} !important;
+                " title="${isUser ? '点击更换我的头像' : ''}">${avatar}</div>
                 <div style="
                     max-width: ${messageMaxWidth} !important;
                     background: ${isUser ? 'linear-gradient(135deg, #87CEEB, #A8E6CF)' : 'white'} !important;
@@ -4572,17 +5228,63 @@ ${currentPersonality}
 
         // 保存聊天历史（不保存打字指示器）
         if (message !== '...') {
-            chatHistory.push({ sender, message, timestamp: Date.now() });
-            if (chatHistory.length > 50) chatHistory.shift();
+            const rec = { sessionId: getCurrentChatSessionId(), sender, message, timestamp: Date.now() };
+            chatHistory.push({ sender: rec.sender, message: rec.message, timestamp: rec.timestamp });
+            if (chatHistory.length > 1000) chatHistory.shift();
+            try { await dbSaveMessage(rec); } catch (e) { console.warn('保存聊天历史失败', e); }
         }
 
         console.log(`[${extensionName}] 已添加${isUser ? '用户' : '宠物'}消息: ${message.substring(0, 20)}...`);
+    }
+    // 全局：注入聊天样式（重写版）
+    function injectChatStyles(){
+        if (document.getElementById('vp-chat-styles')) return;
+        const css = `
+        #chat-modal-overlay{position:fixed;inset:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:1000001;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+        #chat-modal-container{background:${candyColors.backgroundSolid};color:${candyColors.textPrimary};width:100%;max-width:420px;max-height:72vh;display:flex;flex-direction:column;border:3px solid ${candyColors.border};border-radius:16px;box-shadow:0 20px 40px ${candyColors.shadowGlow},0 8px 16px ${candyColors.shadow};overflow:hidden}
+        .vp-chat-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid ${candyColors.border}}
+        .vp-chat-header h3{margin:0;font-size:1.1em;color:${candyColors.textPrimary}}
+        #chat-modal-messages{flex:1;overflow-y:auto;padding:12px 16px;background:${candyColors.background}}
+        #chat-modal-input-area{display:flex;gap:10px;align-items:center;padding:12px 16px;border-top:1px solid ${candyColors.border};background:${candyColors.backgroundSolid}}
+        #chat-modal-input{flex:1;border:1px solid ${candyColors.border};border-radius:12px;padding:10px 12px;font-size:14px;background:#fff;color:${candyColors.textPrimary};outline:none;min-height:44px;max-height:140px;resize:vertical}
+        #chat-modal-send-btn{background:${candyColors.buttonPrimary};color:${candyColors.textPrimary};border:2px solid ${candyColors.border};border-radius:12px;padding:10px 14px;cursor:pointer;font-weight:600}
+        #chat-modal-send-btn:disabled{opacity:.5;cursor:not-allowed}
+        .chat-message{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px}
+        .chat-message.user-message{flex-direction:row-reverse}
+        .message-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${candyColors.screen};border:2px solid #fff;overflow:hidden;flex-shrink:0}
+        .message-bubble{max-width:75%;padding:10px 12px;border:1px solid ${candyColors.border};border-radius:12px;background:#fff;color:${candyColors.textPrimary};box-shadow:0 2px 6px rgba(0,0,0,.06)}
+        .user-message .message-bubble{background:${candyColors.info};color:${candyColors.textWhite}}
+        .message-time{margin-top:4px;font-size:.75em;color:${candyColors.textLight};text-align:right}
+        .chat-config-hint{border:1px dashed ${candyColors.border};border-radius:12px;padding:12px;color:${candyColors.textPrimary};background:${candyColors.backgroundSolid}}
+        `;
+        const style = document.createElement('style');
+        style.id = 'vp-chat-styles';
+        style.textContent = css;
+        document.head.appendChild(style);
+    }
+
+    // 全局：渲染聊天模态模板（使用 textarea）
+    function renderChatModal(){
+        return `
+        <div id="chat-modal-overlay">
+          <div id="chat-modal-container">
+            <div class="vp-chat-header">
+              <h3>💬 与 ${escapeHtml(petData.name)} 聊天</h3>
+              <button id="chat-modal-close-btn" aria-label="关闭" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:${candyColors.textPrimary}">×</button>
+            </div>
+            <div id="chat-modal-messages"></div>
+            <div id="chat-modal-input-area">
+              <textarea id="chat-modal-input" placeholder="输入消息... (Enter 发送 / Shift+Enter 换行)" rows="2" maxlength="1000"></textarea>
+              <button id="chat-modal-send-btn">发送</button>
+            </div>
+          </div>
+        </div>`;
     }
 
     /**
      * 打开独立的聊天模态弹窗 - 学习商店设计模式
      */
-    function openChatModal() {
+    async function openChatModal() {
         console.log(`[${extensionName}] 打开聊天模态弹窗...`);
 
         // 确保只有一个聊天弹窗
@@ -4674,6 +5376,24 @@ ${currentPersonality}
                         gap: ${isMobile ? '12px' : '16px'} !important;
                     ">
 
+                            <!-- 简短引导提示（仅首次展示） -->
+                            ${localStorage.getItem(CHAT_TIP_KEY) ? '' : `
+                            <div class="chat-tip" style="
+                                display: flex !important;
+                                align-items: center !important;
+                                gap: 8px !important;
+                                padding: 10px 12px !important;
+                                border-radius: 12px !important;
+                                background: rgba(255,255,255,0.8) !important;
+                                color: #4A5568 !important;
+                                font-size: 0.85em !important;
+                                border: 1px dashed rgba(74,85,104,0.25) !important;
+                            ">
+                                <span style="font-size: 1.1em !important;">💡</span>
+                                <span>提示：点击头像即可更换，点击你自己的头像可设置“用户聊天头像”。</span>
+                            </div>`}
+
+
                     </div>
 
                     <!-- 输入区域 -->
@@ -4720,8 +5440,14 @@ ${currentPersonality}
 
         $('body').append(chatModal);
 
+        // 初始化聊天存储并迁移旧历史
+        try { await migrateChatFromLocalStorage(); } catch(e) { console.warn('migrate failed', e); }
+
         // 加载历史记录
-        loadChatHistory();
+        await loadChatHistoryFromDB();
+
+        // 首次展示提示后，标记不再显示
+        try { localStorage.setItem(CHAT_TIP_KEY, '1'); } catch(e) {}
 
         // 绑定事件 - 学习商店的事件绑定方式
         // 关闭按钮事件
@@ -4802,6 +5528,29 @@ ${currentPersonality}
 
         console.log(`[${extensionName}] 聊天模态弹窗已打开`);
     }
+    // 覆盖旧版 openChatModal 为重写版（使用统一样式与模板）
+    openChatModal = async function(){
+        try{ $('#chat-modal-overlay').remove(); }catch{}
+        try{ injectChatStyles(); }catch(e){ console.warn('聊天样式注入失败', e); }
+        $('body').append(renderChatModal());
+        // 事件
+        $('#chat-modal-close-btn').on('click', (e)=>{ e.preventDefault(); e.stopPropagation(); closeChatModal(); });
+        $('#chat-modal-overlay').on('click', function(e){ if(e.target===this) closeChatModal(); });
+        $('#chat-modal-container').on('click', e=>e.stopPropagation());
+        $('#chat-modal-send-btn').on('click', handleSendMessage);
+        // Enter 发送，Shift+Enter 换行
+        $('#chat-modal-input').on('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); handleSendMessage(); }});
+        // 用户头像点击更换（兜底绑定）
+        $('#chat-modal-messages').off('click.vp-avatar2', '.message-avatar[data-sender="user"]').on('click.vp-avatar2', '.message-avatar[data-sender="user"]', function(){
+            if (typeof window.openUserAvatarSelector === 'function') window.openUserAvatarSelector();
+        });
+        // 历史
+        try { await migrateChatFromLocalStorage(); } catch{}
+        await loadChatHistoryFromDB();
+        // 配置提示
+        ensureChatConfigHint($('#chat-modal-messages'));
+        setTimeout(()=>$('#chat-modal-input').focus(), 50);
+    };
 
     /**
      * 关闭聊天模态弹窗 - 学习商店的关闭方式
@@ -4843,18 +5592,31 @@ ${currentPersonality}
             if (saved) {
                 chatHistory = JSON.parse(saved);
 
-                // 渲���历史消息
-                const container = $('#chat-messages-container');
-                // 清空除了欢迎消息之外的所有消息
-                container.find('.chat-message').not('.chat-welcome-message .chat-message').remove();
+                // 渲染历史消息到当前激活容器（优先模态弹窗）
+                const container = $('#chat-modal-messages').length ? $('#chat-modal-messages') : $('#chat-messages-container');
+                if (container.length === 0) return;
+                container.find('.chat-message').remove();
 
                 chatHistory.forEach(item => {
                     const timestamp = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     const isUser = item.sender === 'user';
 
+    // 轻量 Markdown/链接 格式化（用于AI消息）
+    function formatMarkdown(text){
+        if (typeof text !== 'string') return '';
+        let s = escapeHtml(text);
+        // 链接高亮
+        s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+        // 粗体与斜体（简单版）
+        s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1<\/strong>');
+        s = s.replace(/\*([^*]+)\*/g, '<em>$1<\/em>');
+        // 换行
+        s = s.replace(/\n/g, '<br>');
+        return s;
+    }
                     const messageHtml = `
                         <div class="chat-message ${isUser ? 'user-message' : 'pet-message'}">
-                            <div class="message-avatar">${isUser ? '👤' : getPetEmoji()}</div>
+                            <div class="message-avatar" data-sender="${isUser ? 'user' : 'pet'}" style="cursor: pointer !important;">${isUser ? (customUserAvatarData ? `<img src="${customUserAvatarData}" alt="用户头像" style="width:100% !important;height:100% !important;object-fit:cover !important;border-radius:50% !important;">` : getFeatherIcon('user', { color: '#ffffff', size: 18 })) : (customAvatarData ? getAvatarContent() : getDefaultPetIcon(18, '#ffd700'))}</div>
                             <div class="message-content">
                                 <div class="message-text">${escapeHtml(item.message)}</div>
                                 <div class="message-timestamp">${timestamp}</div>
@@ -4895,79 +5657,7 @@ ${currentPersonality}
         return div.innerHTML;
     }
 
-    /**
-     * 测试聊天按钮功能
-     */
-    window.testChatButton = function() {
-        console.log('🧪 测试聊天按钮功能...');
 
-        // 1. 检查弹窗是否存在
-        const popup = $('.virtual-pet-popup-overlay');
-        console.log(`弹窗存在: ${popup.length > 0 ? '✅' : '❌'} (数量: ${popup.length})`);
-
-        if (popup.length === 0) {
-            console.log('❌ 请先打开宠物界面');
-            return false;
-        }
-
-        // 2. 检查聊天按钮是否存在
-        const chatBtn = popup.find('.chat-btn');
-        console.log(`聊天按钮存在: ${chatBtn.length > 0 ? '✅' : '❌'} (数量: ${chatBtn.length})`);
-
-        if (chatBtn.length === 0) {
-            console.log('❌ 聊天按钮未找到');
-            return false;
-        }
-
-        // 3. 检查按钮样式
-        const btnStyle = chatBtn.attr('style');
-        console.log(`按钮样式: ${btnStyle ? '✅ 有样式' : '❌ 无样式'}`);
-        if (btnStyle) {
-            console.log(`背景色: ${btnStyle.includes('background') ? '✅' : '❌'}`);
-        }
-
-        // 4. 检查事件绑定
-        const events = $._data(chatBtn[0], 'events');
-        console.log(`事件绑定: ${events ? '✅' : '❌'}`);
-        if (events) {
-            console.log(`- click: ${events.click ? '✅' : '❌'}`);
-            console.log(`- touchend: ${events.touchend ? '✅' : '❌'}`);
-        }
-
-        // 5. 检查函数是否存在
-        console.log(`handleChatButtonClick函数: ${typeof handleChatButtonClick === 'function' ? '✅' : '❌'}`);
-        console.log(`showChatView函数: ${typeof showChatView === 'function' ? '✅' : '❌'}`);
-        console.log(`initializeChatInterface函数: ${typeof initializeChatInterface === 'function' ? '✅' : '❌'}`);
-
-        // 6. 检查API配置状态
-        const config = getAIConfiguration();
-        console.log(`API配置状态: ${config.isConfigured ? '✅ 已配置' : '❌ 未配置'}`);
-
-        // 7. 测试点击
-        console.log('🎯 模拟点击聊天按钮...');
-        try {
-            chatBtn.trigger('click');
-            console.log('✅ 点击事件已触发');
-
-            // 检查是否切换到聊天视图
-            setTimeout(() => {
-                const chatView = $('#pet-chat-view');
-                const isVisible = chatView.is(':visible');
-                console.log(`聊天视图显示: ${isVisible ? '✅' : '❌'}`);
-
-                if (isVisible) {
-                    const configHint = chatView.find('.chat-config-hint');
-                    const hasConfigHint = configHint.length > 0;
-                    console.log(`配置提示显示: ${hasConfigHint ? '✅' : '❌'}`);
-                }
-            }, 100);
-
-        } catch (error) {
-            console.error('❌ 点击事件失败:', error);
-        }
-
-        return true;
-    };
 
     /**
      * 显示API配置提示
@@ -4986,25 +5676,25 @@ ${currentPersonality}
         // 创建友好的提示消息
         const message = `
             <div style="text-align: center; padding: 20px;">
-                <div style="font-size: 3em; margin-bottom: 15px;">🤖</div>
+                <div style="font-size: 3em; margin-bottom: 15px;">${getFeatherIcon('cpu', { color: candyColors.primary, size: 48 })}</div>
                 <h3 style="color: var(--primary-accent-color); margin-bottom: 15px;">需要配置AI API</h3>
                 <p style="margin-bottom: 15px; line-height: 1.5;">
                     要与宠物聊天，需要先配置AI API。<br>
                     当前缺少：<strong>${missingText}</strong>
                 </p>
                 <div style="background: #f0f8ff; padding: 15px; border-radius: 8px; margin-bottom: 15px; text-align: left;">
-                    <div style="font-weight: bold; color: #007bff; margin-bottom: 10px;">📋 配置步骤：</div>
+                    <div style="font-weight: bold; color: #007bff; margin-bottom: 10px;">配置步骤：</div>
                     <ol style="margin: 0; padding-left: 20px; line-height: 1.6;">
-                        <li>点击右上角的 <strong>扩展</strong> 按钮 (🧩)</li>
-                        <li>找到 <strong>🐾 虚拟宠物系统</strong> 设置</li>
-                        <li>在 <strong>🤖 AI API 配置</strong> 部分填写：
+                        <li>点击右上角的 <strong>扩展</strong> 按钮</li>
+                        <li>找到 <strong>虚拟宠物系统</strong> 设置</li>
+                        <li>在 <strong>AI API 配置</strong> 部分填写：
                             <ul style="margin-top: 5px;">
                                 <li>选择API类型（如OpenAI、Claude等）</li>
                                 <li>填写API URL</li>
                                 <li>填写API密钥</li>
                             </ul>
                         </li>
-                        <li>点击 <strong>🔗 测试连接</strong> 验证配置</li>
+                        <li>点击 <strong>测试连接</strong> 验证配置</li>
                     </ol>
                 </div>
                 <div style="background: #fff3cd; padding: 12px; border-radius: 6px; margin-bottom: 20px; text-align: left; border-left: 4px solid #ffc107;">
@@ -5064,13 +5754,13 @@ ${currentPersonality}
     // -----------------------------------------------------------------
     // 4. UI 渲染逻辑
     // -----------------------------------------------------------------
-    
+
     /**
      * 渲染宠物状态
      */
     function renderPetStatus() {
         if (!petContainer) return;
-        
+
         const statusHtml = `
             <div class="pet-avatar-container" style="
                 display: flex !important;
@@ -5093,12 +5783,12 @@ ${currentPersonality}
                     border: 3px solid ${candyColors.border} !important;
                     box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                     cursor: pointer !important;
-                    font-family: 'Courier New', monospace !important;
+                    font-family: ${candyColors.fontFamily} !important;
                     image-rendering: pixelated !important;
                     image-rendering: -moz-crisp-edges !important;
                     image-rendering: crisp-edges !important;
                 " onclick="openAvatarSelector()" oncontextmenu="showAvatarContextMenu(event)" title="点击更换头像，右键重置">
-                    ${getAvatarContent()}
+                    ${customAvatarData ? getAvatarContent() : getDefaultPetIcon(48, '#ffd700')}
                 </div>
 
                 <!-- 宠物信息 -->
@@ -5107,14 +5797,15 @@ ${currentPersonality}
                         font-size: 1.3em !important;
                         font-weight: bold !important;
                         margin-bottom: 4px !important;
-                        color: #ffffff !important;
+                        color: ${candyColors.textPrimary} !important;
                     ">${escapeHtml(petData.name)}</div>
                     <div class="pet-level" style="
-                        color: #7289da !important;
+                        color: ${candyColors.textSecondary} !important;
                         font-size: 1em !important;
+                        width: 100% !important; text-align: center !important; font-weight: normal !important;
                     ">${petData.isAlive ?
-                        `${LIFE_STAGES[petData.lifeStage]?.emoji || '🐾'} ${LIFE_STAGES[petData.lifeStage]?.name || '未知'} Lv.${petData.level}` :
-                        '💀 已死亡'
+                        `${LIFE_STAGES[petData.lifeStage]?.name || '未知'} Lv.${petData.level}` :
+                        `已死亡`
                     }</div>
                 </div>
             </div>
@@ -5123,7 +5814,7 @@ ${currentPersonality}
                     display: flex !important;
                     align-items: center !important;
                     margin-bottom: 8px !important;
-                    font-family: 'Courier New', monospace !important;
+                    font-family: ${candyColors.fontFamily} !important;
                     font-size: 12px !important;
                     font-weight: bold !important;
                 ">
@@ -5134,18 +5825,21 @@ ${currentPersonality}
                     ">HP</label>
                     <div class="progress-bar" style="
                         flex: 1 !important;
-                        height: 12px !important;
+                        height: 16px !important;
                         background: ${candyColors.backgroundSolid} !important;
                         border: 2px solid ${candyColors.border} !important;
-                        border-radius: 0 !important;
+                        border-radius: 20px !important;
                         overflow: hidden !important;
                         margin-right: 8px !important;
+                        box-shadow: inset 0 2px 4px ${candyColors.shadowLight} !important;
                     ">
                         <div class="progress-fill health" style="
                             width: ${petData.health}% !important;
                             height: 100% !important;
-                            background: ${candyColors.health} !important;
-                            transition: none !important;
+                            background: linear-gradient(135deg, ${candyColors.health} 0%, ${candyColors.health}dd 100%) !important;
+                            border-radius: 20px !important;
+                            transition: width 0.3s ease !important;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
                         "></div>
                     </div>
                     <span style="
@@ -5355,25 +6049,25 @@ ${currentPersonality}
                 ` : ''}
             </div>
         `;
-        
+
         petContainer.html(statusHtml);
 
         // 确保聊天按钮始终可见
         updateChatButtonVisibility();
     }
-    
+
     /**
      * 获取宠物表情符号
      */
     function getPetEmoji() {
-        const emojis = {
-            cat: "🐱",
-            dog: "🐶",
-            dragon: "🐉",
-            rabbit: "🐰",
-            bird: "🐦"
+        const icons = {
+            cat: getFeatherIcon('smile', { color: '#ffd700', size: 18 }),
+            dog: getFeatherIcon('smile', { color: '#ffd700', size: 18 }),
+            dragon: getFeatherIcon('activity', { color: '#ffd700', size: 18 }),
+            rabbit: getFeatherIcon('smile', { color: '#ffd700', size: 18 }),
+            bird: getFeatherIcon('bird', { color: '#ffd700', size: 18 })
         };
-        return emojis[petData.type] || "🐱";
+        return icons[petData.type] || getFeatherIcon('smile', { color: '#ffd700', size: 18 });
     }
 
     /**
@@ -5431,6 +6125,57 @@ ${currentPersonality}
             } else {
                 console.log(`[${extensionName}] No custom avatar found`);
             }
+
+    // 用户头像：加载/保存/清除
+    function loadUserAvatar(){
+        try{
+            const local = localStorage.getItem(STORAGE_KEY_USER_AVATAR);
+            if (local){ customUserAvatarData = local; }
+        }catch(e){ console.warn('加载用户头像失败', e); }
+    }
+    function saveUserAvatar(imageData){
+        try{
+            localStorage.setItem(STORAGE_KEY_USER_AVATAR, imageData);
+            customUserAvatarData = imageData;
+            console.log('[VirtualPet] 用户头像已保存');
+            return true;
+        }catch(e){ console.error('保存用户头像失败', e); return false; }
+    }
+    function clearUserAvatar(){
+        try{
+            localStorage.removeItem(STORAGE_KEY_USER_AVATAR);
+            customUserAvatarData = null;
+            console.log('[VirtualPet] 用户头像已清除');
+            return true;
+        }catch(e){ console.error('清除用户头像失败', e); return false; }
+    }
+
+    // 在设置里提供用户头像更换入口（沿用宠物头像交互样式）
+    window.openUserAvatarSelector = function(){
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.style.display = 'none';
+        document.body.appendChild(fileInput);
+        fileInput.addEventListener('change', (e)=>{
+            const file = e.target.files[0];
+            if (file){
+                const reader = new FileReader();
+                reader.onload = (ev)=>{
+                    const img = ev.target.result;
+                    if (saveUserAvatar(img)){
+                        toastr.success('用户头像已更新');
+                    } else {
+                        toastr.error('用户头像保存失败');
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        fileInput.click();
+        setTimeout(()=>fileInput.remove(), 0);
+    };
+
         } catch (error) {
             console.warn(`[${extensionName}] Failed to load custom avatar:`, error);
         }
@@ -5475,7 +6220,7 @@ ${currentPersonality}
             return false;
         }
     }
-    
+
     /**
      * 渲染宠物详情
      */
@@ -5605,9 +6350,11 @@ ${currentPersonality}
     /**
      * 重置宠物
      */
-    function resetPet() {
-        if (!confirm("确定要重置宠物吗？这将清除所有数据！")) {
-            return;
+    function resetPet(skipConfirm = false) {
+        if (!skipConfirm) {
+            if (!confirm("确定要重置宠物吗？这将清除所有数据！")) {
+                return;
+            }
         }
 
         // 重置为智能初始化系统
@@ -5616,10 +6363,10 @@ ${currentPersonality}
             type: "cat",
             level: 1,
             experience: 0,
-            health: 35,    // 智能系统：会在首次打开时随机化
-            happiness: 30, // 智能系统：会在首次打开时随机化
-            hunger: 40,    // 智能系统：会在首次打开时随机化
-            energy: 45,    // 智能系统：会在首次打开时随机化
+            health: 100,
+            happiness: 50,
+            hunger: 40,
+            energy: 50,
 
             // 拓麻歌子式属性
             lifeStage: "baby",
@@ -5643,7 +6390,7 @@ ${currentPersonality}
             sicknessDuration: 0,
 
             dataVersion: 4.0, // 拓麻歌子系统版本
-            hasBeenRandomized: false // 重置后需要重新随机化
+            hasBeenRandomized: false // 重置后仍会执行初始化流程
         };
 
         // 应用拓麻歌子系统和随机化
@@ -5652,9 +6399,9 @@ ${currentPersonality}
 
         savePetData();
         renderSettings();
-        toastr.success("🥚 新的拓麻歌子宠物诞生了！请好好照顾它！");
+        toastr.success("新的拓麻歌子宠物诞生了！请好好照顾它！");
     }
-    
+
     /**
      * 安全地转义HTML字符串，防止XSS
      */
@@ -5667,7 +6414,7 @@ ${currentPersonality}
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
     }
-    
+
     // -----------------------------------------------------------------
     // 5. 浮动按钮管理
     // -----------------------------------------------------------------
@@ -5797,7 +6544,7 @@ ${currentPersonality}
                         togglePopup();
                     } catch (error) {
                         console.error(`[${extensionName}] Error toggling popup:`, error);
-                        alert("🐾 虚拟宠物系统\n\n弹窗功能正在加载中...\n请稍后再试！");
+                        alert("虚拟宠物系统\n\n弹窗功能正在加载中...\n请稍后再试！");
                     }
                 }
             });
@@ -5887,33 +6634,21 @@ ${currentPersonality}
     /**
      * 初始化并显示浮动按钮
      */
-    function initializeFloatingButton() {
-        console.log(`[${extensionName}] initializeFloatingButton called`);
-
-        if ($(`#${BUTTON_ID}`).length) {
-            console.log(`[${extensionName}] Button already exists`);
-            return;
-        }
-
-        // 创建按钮
-        console.log(`[${extensionName}] Creating floating button with ID: ${BUTTON_ID}`);
-
-        // 使用内联样式确保按钮可见，强制使用fixed定位
-        const buttonHtml = `
-            <div id="${BUTTON_ID}" style="
+    function buildFloatingButtonDOM(){
+        const avatarHTML = customAvatarData ?
+            `<img src="${customAvatarData}" alt="宠物头像" style="width: 70% !important; height: 70% !important; object-fit: cover !important; border-radius: 50% !important;">` :
+            getFeatherIcon('heart', { color: '#FF69B4', size: 20, strokeWidth: 2 });
+        const html = `
+            <div id="${BUTTON_ID}" class="kpop-neon" style="
                 position: fixed !important;
                 z-index: ${SAFE_Z_INDEX.button} !important;
                 cursor: grab !important;
-                width: 48px !important;
-                height: 48px !important;
-                background: linear-gradient(145deg, ${candyColors.primary}, ${candyColors.buttonHover}) !important;
+                width: 50px !important;
+                height: 50px !important;
                 border-radius: 50% !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                color: #7289da !important;
-                font-size: 24px !important;
-                box-shadow: 0 4px 8px rgba(0,0,0,0.3), inset 0 2px 2px rgba(255,255,255,0.05), 0 0 0 1px rgba(0,0,0,0.5) !important;
                 user-select: none !important;
                 opacity: 1 !important;
                 visibility: visible !important;
@@ -5924,136 +6659,77 @@ ${currentPersonality}
                 left: 20px !important;
                 bottom: auto !important;
                 right: auto !important;
-            ">${customAvatarData ? `<img src="${customAvatarData}" alt="宠物头像" style="width: 100% !important; height: 100% !important; object-fit: cover !important; border-radius: 50% !important;">` : '🐾'}</div>
+                border: 1px solid rgba(164,0,255,.40) !important;
+                background: radial-gradient(120px 120px at 30% 20%, rgba(255,45,149,.22), transparent 55%),
+                            radial-gradient(180px 180px at 80% 70%, rgba(0,240,255,.18), transparent 60%),
+                            rgba(17,20,36,.72) !important;
+                backdrop-filter: blur(8px) !important;
+                box-shadow: 0 8px 24px rgba(0,0,0,.35), 0 0 18px rgba(255,45,149,.6), 0 0 28px rgba(0,240,255,.55) !important;
+            ">${avatarHTML}</div>
         `;
+        $("body").append(html);
+        return $(`#${BUTTON_ID}`);
+    }
 
-        // 直接添加到body，避免被其他容器影响定位
-        $("body").append(buttonHtml);
-
-        const $button = $(`#${BUTTON_ID}`);
-        console.log(`[${extensionName}] Button created, element count: ${$button.length}`);
-
-        if ($button.length === 0) {
-            console.error(`[${extensionName}] Failed to create button!`);
-            return;
-        }
-
-        // 强制确保按钮可见和正确定位
-        $button.css({
-            'position': 'fixed',
-            'display': 'flex',
-            'opacity': '1',
-            'visibility': 'visible',
-            'z-index': SAFE_Z_INDEX.button,
-            'transform': 'none',
-            'margin': '0',
-            'pointer-events': 'auto'
-        });
-
-        // 验证按钮位置是否正确
-        setTimeout(() => {
-            const rect = $button[0].getBoundingClientRect();
-            console.log(`[${extensionName}] Button position check:`, {
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-                inViewport: rect.top >= 0 && rect.left >= 0 && rect.bottom <= window.innerHeight && rect.right <= window.innerWidth
-            });
-
-            // 如果位置不正确，强制修正
-            if (rect.top < 0 || rect.top > window.innerHeight || rect.left < 0 || rect.left > window.innerWidth) {
-                console.warn(`[${extensionName}] Button position incorrect, forcing correction`);
-                $button.css({
-                    'top': '200px',
-                    'left': '20px',
-                    'position': 'fixed',
-                    'transform': 'none'
-                });
-            }
-        }, 100);
-
-        // 从localStorage恢复按钮位置，使用完善的边界检查
-        const savedPos = localStorage.getItem(STORAGE_KEY_BUTTON_POS);
-        if (savedPos) {
-            try {
-                const pos = JSON.parse(savedPos);
-                // 验证位置是否合理
-                const windowWidth = window.innerWidth;
-                const windowHeight = window.innerHeight;
-                const buttonWidth = $button.outerWidth() || 48;
-                const buttonHeight = $button.outerHeight() || 48;
-                const left = parseInt(pos.x) || 20;
-                const top = parseInt(pos.y) || 200;
-
-                // 使用与拖动相同的边界检查逻辑
-                const safeMargin = Math.min(10, Math.floor(Math.min(windowWidth, windowHeight) * 0.02));
-                const minMargin = 5;
-                const actualMargin = Math.max(minMargin, safeMargin);
-
-                const maxX = windowWidth - buttonWidth - actualMargin;
-                const maxY = windowHeight - buttonHeight - actualMargin;
-                const minX = actualMargin;
-                const minY = actualMargin;
-
-                let safeLeft, safeTop;
-
-                if (maxX > minX && maxY > minY) {
-                    safeLeft = Math.max(minX, Math.min(left, maxX));
-                    safeTop = Math.max(minY, Math.min(top, maxY));
-                } else {
-                    // 屏幕太小的情况，使用中心位置
-                    safeLeft = Math.max(0, (windowWidth - buttonWidth) / 2);
-                    safeTop = Math.max(0, (windowHeight - buttonHeight) / 2);
-                    console.warn(`[${extensionName}] Screen too small for saved position, centering button`);
-                }
-
-                $button.css({
-                    'top': safeTop + 'px',
-                    'left': safeLeft + 'px',
-                    'position': 'fixed',
-                    'transform': 'none'
-                });
-                console.log(`[${extensionName}] Button position restored:`, { left: safeLeft, top: safeTop });
-            } catch (error) {
-                console.warn(`[${extensionName}] Failed to restore position:`, error);
-                // 如果恢复位置失败，设置默认位置
-                $button.css({
-                    'top': '200px',
-                    'left': '20px',
-                    'position': 'fixed',
-                    'transform': 'none'
-                });
-            }
-        }
-
+    function bindFloatingButtonEvents($button){
         // 使按钮可拖动
         makeButtonDraggable($button);
-
-        // 添加定期位置检查，防止按钮被意外移动
+        // 定期位置检查
         const positionCheckInterval = setInterval(() => {
             const currentButton = $(`#${BUTTON_ID}`);
             if (currentButton.length > 0) {
                 const rect = currentButton[0].getBoundingClientRect();
                 const styles = window.getComputedStyle(currentButton[0]);
-
-                // 检查是否位置异常或定位方式错误
                 if (styles.position !== 'fixed' || rect.top < -100 || rect.top > window.innerHeight + 100) {
                     console.warn(`[${extensionName}] Button position anomaly detected, correcting...`);
-                    currentButton.css({
-                        'position': 'fixed',
-                        'top': '200px',
-                        'left': '20px',
-                        'transform': 'none',
-                        'z-index': SAFE_Z_INDEX.button
-                    });
+                    currentButton.css({ 'position': 'fixed', 'top': '200px', 'left': '20px', 'transform': 'none', 'z-index': SAFE_Z_INDEX.button });
                 }
-            } else {
-                // 如果按钮消失了，清除检查
-                clearInterval(positionCheckInterval);
-            }
-        }, 5000); // 每5秒检查一次
+            } else { clearInterval(positionCheckInterval); }
+        }, 5000);
+    }
 
+    function restoreFloatingButtonPosition($button){
+        // 强制确保按钮可见和正确定位
+        $button.css({ 'position': 'fixed', 'display': 'flex', 'opacity': '1', 'visibility': 'visible', 'z-index': SAFE_Z_INDEX.button, 'transform': 'none', 'margin': '0', 'pointer-events': 'auto' });
+        // 验证并矫正
+        setTimeout(() => {
+            if ($button.length===0) return;
+            const rect = $button[0].getBoundingClientRect();
+            if (rect.top < 0 || rect.top > window.innerHeight || rect.left < 0 || rect.left > window.innerWidth) {
+                $button.css({ 'top': '200px', 'left': '20px', 'position': 'fixed', 'transform': 'none' });
+            }
+        }, 100);
+        // 恢复保存的位置
+        const savedPos = localStorage.getItem(STORAGE_KEY_BUTTON_POS);
+        if (!savedPos) return;
+        try {
+            const pos = JSON.parse(savedPos);
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+            const buttonWidth = $button.outerWidth() || 48;
+            const buttonHeight = $button.outerHeight() || 48;
+            const left = parseInt(pos.x) || 20;
+            const top = parseInt(pos.y) || 200;
+            const safeMargin = Math.min(10, Math.floor(Math.min(windowWidth, windowHeight) * 0.02));
+            const minMargin = 5;
+            const actualMargin = Math.max(minMargin, safeMargin);
+            const maxX = windowWidth - buttonWidth - actualMargin;
+            const maxY = windowHeight - buttonHeight - actualMargin;
+            const minX = actualMargin;
+            const minY = actualMargin;
+            const safeLeft = Math.max(minX, Math.min(left, maxX));
+            const safeTop = Math.max(minY, Math.min(top, maxY));
+            $button.css({ 'top': safeTop + 'px', 'left': safeLeft + 'px', 'position': 'fixed', 'transform': 'none' });
+        } catch (e) { console.warn(`[${extensionName}] Failed to restore position:`, e); }
+    }
+
+    function initializeFloatingButton(){
+        console.log(`[${extensionName}] initializeFloatingButton called`);
+        if ($(`#${BUTTON_ID}`).length) { console.log(`[${extensionName}] Button already exists`); return; }
+        const $button = buildFloatingButtonDOM();
+        if ($button.length === 0) { console.error(`[${extensionName}] Failed to create button!`); return; }
+        restoreFloatingButtonPosition($button);
+        bindFloatingButtonEvents($button);
         console.log(`[${extensionName}] Button initialization complete`);
     }
 
@@ -6197,34 +6873,39 @@ ${currentPersonality}
             <div id="virtual-pet-settings">
                 <div class="inline-drawer">
                     <div class="inline-drawer-toggle inline-drawer-header">
-                        <b>🐾 虚拟宠物系统</b>
+                        <b>虚拟宠物系统</b>
                         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                     </div>
                     <div class="inline-drawer-content">
+                        <div style="margin:6px 0 10px 0; font-size: 0.85em; color: #999;">
+                            作者：<b>一禄柒柒</b> ｜ 本插件仅发布于旅程和尾巴镇，严禁二传二改
+                        </div>
                         <div class="flex-container">
                             <label class="checkbox_label" for="virtual-pet-enabled-toggle">
                                 <input id="virtual-pet-enabled-toggle" type="checkbox" checked>
                                 <span>启用虚拟宠物系统</span>
                             </label>
+
                         </div>
                         <small class="notes">
-                            启用后会在屏幕上显示一个可拖动的宠物按钮（🐾）
+                            启用后会在屏幕上显示一个可拖动的宠物按钮
                         </small>
 
                         <hr style="margin: 15px 0; border: none; border-top: 1px solid #444;">
 
                         <div class="flex-container">
                             <label for="virtual-pet-personality-select" style="display: block; margin-bottom: 8px; font-weight: bold;">
-                                🎭 宠物人设选择
+                                宠物人设
                             </label>
                             <select id="virtual-pet-personality-select" style="width: 100%; padding: 8px; margin-bottom: 8px; border-radius: 4px;">
-                                <option value="default">🐱 默认 - 高冷但温柔的猫</option>
-                                <option value="cheerful">🐶 活泼 - 热情洋溢的小狗</option>
-                                <option value="elegant">🐉 优雅 - 古典文雅的龙</option>
-                                <option value="shy">🐰 害羞 - 轻声细语的兔子</option>
-                                <option value="smart">🐦 聪明 - 机智幽默的鸟</option>
-                                <option value="custom">✏️ 自定义人设</option>
+                                <option value="default">默认 - 高冷但温柔的猫</option>
+                                <option value="cheerful">活泼 - 热情洋溢的小狗</option>
+                                <option value="elegant">优雅 - 古典文雅的龙</option>
+                                <option value="shy">害羞 - 轻声细语的兔子</option>
+                                <option value="smart">聪明 - 机智幽默的鸟</option>
+                                <option value="custom">自定义人设</option>
                             </select>
+
                         </div>
 
                         <div id="virtual-pet-custom-personality-container" style="display: none; margin-top: 10px;">
@@ -6248,7 +6929,7 @@ ${currentPersonality}
 
                         <div class="flex-container">
                             <label for="ai-api-select" style="display: block; margin-bottom: 8px; font-weight: bold;">
-                                🤖 AI API 配置
+                                AI API 配置
                             </label>
                             <select id="ai-api-select" style="width: 100%; padding: 8px; margin-bottom: 8px; border-radius: 4px;">
                                 <option value="">请选择API类型...</option>
@@ -6278,7 +6959,7 @@ ${currentPersonality}
                                     </button>
                                 </div>
                                 <div style="font-size: 0.8em; color: #666; margin-top: 3px;">
-                                    💡 提示：只需填写到 /v1，插件会自动添加 /chat/completions 端点。点击重置按钮可恢复官方端点
+                                    提示：只需填写到 /v1，插件会自动添加 /chat/completions 端点。点击重置可恢复官方端点
                                 </div>
                             </div>
                             <div style="margin-bottom: 10px;">
@@ -6305,7 +6986,7 @@ ${currentPersonality}
                                         <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
                                         <option value="deepseek-chat">DeepSeek Chat</option>
                                         <option value="deepseek-coder">DeepSeek Coder</option>
-                                        <option value="custom">🔧 自定义模型</option>
+                                        <option value="custom">自定义模型</option>
                                     </select>
                                     <button id="refresh-models-btn" style="
                                         padding: 6px 10px;
@@ -6317,7 +6998,7 @@ ${currentPersonality}
                                         font-size: 0.8em;
                                         white-space: nowrap;
                                     " title="从配置的API获取可用模型列表">
-                                        🔄 获取
+                                        刷新模型
                                     </button>
                                 </div>
                                 <input id="ai-model-input" type="text" placeholder="自定义模型名称"
@@ -6327,7 +7008,7 @@ ${currentPersonality}
 
                         <div class="flex-container" style="margin-top: 10px;">
                             <button id="test-ai-connection-btn" style="padding: 8px 16px; background: #48bb78; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
-                                🔗 测试连接
+                                测试连接
                             </button>
                             <span id="ai-connection-status" style="padding: 8px; font-size: 0.9em; color: #888;">
                                 未测试
@@ -6343,7 +7024,7 @@ ${currentPersonality}
 
                         <div class="flex-container">
                             <label style="display: block; margin-bottom: 8px; font-weight: bold;">
-                                ☁️ 云端备份
+                                云端备份
                             </label>
                             <small class="notes" style="margin-bottom: 10px; display: block;">
                                 跨设备同步宠物数据、AI设置和头像
@@ -6358,7 +7039,7 @@ ${currentPersonality}
                                     <span id="firebase-status-text" style="font-size: 0.9em;">未连接</span>
                                 </div>
                                 <button id="firebase-init-btn" class="firebase-btn firebase-btn-primary" style="padding: 6px 12px; font-size: 0.85em;">
-                                    🔗 连接
+                                    连接
                                 </button>
                             </div>
 
@@ -6366,23 +7047,23 @@ ${currentPersonality}
                             <div id="firebase-primary-controls" style="display: none; margin-bottom: 10px;">
                                 <div style="display: flex; gap: 8px; margin-bottom: 8px;">
                                     <button id="firebase-generate-code-btn" class="firebase-btn firebase-btn-secondary" style="flex: 1; padding: 6px; font-size: 0.85em;">
-                                        🔑 生成连接码
+                                        生成连接码
                                     </button>
                                     <button id="firebase-backup-now-btn" class="firebase-btn firebase-btn-success" style="flex: 1; padding: 6px; font-size: 0.85em;">
-                                        ☁️ 备份
+                                        备份
                                     </button>
                                 </div>
 
                                 <!-- 连接码显示 -->
                                 <div id="firebase-connection-code-display" style="display: none; margin-bottom: 8px;">
                                     <label style="font-size: 0.85em; margin-bottom: 4px; display: block; color: #28a745; font-weight: bold;">
-                                        🔑 连接码（分享给其他设备）
+                                        连接码（分享给其他设备）
                                     </label>
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <input type="text" id="firebase-connection-code-text" readonly
                                                style="flex: 1; padding: 8px; border: 2px solid #28a745; border-radius: 4px; background: #f8fff9; font-family: monospace; font-size: 16px; text-align: center; letter-spacing: 2px; font-weight: bold;">
                                         <button id="firebase-copy-code-btn" class="firebase-btn firebase-btn-outline" style="padding: 8px 12px; font-size: 0.85em;">
-                                            📋 复制
+                                            复制
                                         </button>
                                     </div>
                                     <small style="color: #28a745; margin-top: 4px; display: block; font-size: 0.8em; text-align: center;">
@@ -6418,11 +7099,26 @@ ${currentPersonality}
                 </div>
             </div>
         `;
-        $("#extensions_settings2").append(simpleSettingsHtml);
-        console.log(`[${extensionName}] Settings panel created`);
-
-        // 初始化设置面板
-        initializeSettingsPanel();
+        try { $("#virtual-pet-settings").remove(); } catch(e) {}
+        function appendSettingsPanel() {
+            const $target = $("#extensions_settings2").length ? $("#extensions_settings2") : $("#extensions_settings");
+            if ($target.length) {
+                $target.append(simpleSettingsHtml);
+                console.log(`[${extensionName}] Settings panel created`);
+                initializeSettingsPanel();
+                return true;
+            }
+            return false;
+        }
+        if (!appendSettingsPanel()) {
+            setTimeout(() => {
+                if (!appendSettingsPanel()) {
+                    $('body').prepend(simpleSettingsHtml);
+                    console.warn(`[${extensionName}] Settings container not found. Fallback mount to <body>.`);
+                    try { initializeSettingsPanel(); } catch(e) { console.error('Init settings failed after fallback', e); }
+                }
+            }, 1000);
+        }
 
         // 3. 加载弹窗HTML（如果失败就使用简单版本）
         // 检测是否为iOS设备，如果是则跳过原始弹窗创建
@@ -6491,6 +7187,7 @@ ${currentPersonality}
 
         // 5. 加载自定义头像数据
         loadCustomAvatar();
+        if (typeof loadUserAvatar === 'function') loadUserAvatar();
 
         // 5. 只在非iOS设备上初始化原始弹窗功能
         if (!isIOS) {
@@ -6620,15 +7317,6 @@ ${currentPersonality}
             }
         });
 
-        // 9. 如果是iOS设备，创建测试按钮
-        if (isIOS) {
-            console.log(`[${extensionName}] iOS detected, creating test button`);
-            setTimeout(() => {
-                if (typeof window.createIOSTestButton === 'function') {
-                    window.createIOSTestButton();
-                }
-            }, 3000); // 延迟3秒创建，确保页面完全加载
-        }
 
         // 10. 设置卸载检测
         setupUnloadDetection();
@@ -6650,27 +7338,23 @@ ${currentPersonality}
 
     // 强制显示按钮函数
     window.forceShowPetButton = function() {
-        console.log("🐾 强制显示宠物按钮...");
+        console.log("[VirtualPet] 强制显示宠物按钮...");
 
         // 移除现有按钮
         $(`#${BUTTON_ID}`).remove();
 
         // 创建按钮并强制设置样式，确保正确定位
         const buttonHtml = `
-            <div id="${BUTTON_ID}" style="
+            <div id="${BUTTON_ID}" class="kpop-neon" style="
                 position: fixed !important;
                 z-index: ${SAFE_Z_INDEX.button} !important;
                 cursor: grab !important;
-                width: 48px !important;
-                height: 48px !important;
-                background: linear-gradient(145deg, ${candyColors.primary}, ${candyColors.buttonHover}) !important;
-                border-radius: 50% !important;
+                width: 52px !important;
+                height: 52px !important;
+                border-radius: 14px !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                color: #7289da !important;
-                font-size: 24px !important;
-                box-shadow: 0 4px 8px rgba(0,0,0,0.3), inset 0 2px 2px rgba(255,255,255,0.05), 0 0 0 1px rgba(0,0,0,0.5) !important;
                 user-select: none !important;
                 opacity: 1 !important;
                 visibility: visible !important;
@@ -6681,33 +7365,39 @@ ${currentPersonality}
                 left: 20px !important;
                 bottom: auto !important;
                 right: auto !important;
-            ">🐾</div>
+                border: 1px solid rgba(164,0,255,.40) !important;
+                background: radial-gradient(120px 120px at 30% 20%, rgba(255,45,149,.22), transparent 55%),
+                            radial-gradient(180px 180px at 80% 70%, rgba(0,240,255,.18), transparent 60%),
+                            rgba(17,20,36,.72) !important;
+                backdrop-filter: blur(8px) !important;
+                box-shadow: 0 8px 24px rgba(0,0,0,.35), 0 0 18px rgba(255,45,149,.6), 0 0 28px rgba(0,240,255,.55) !important;
+            ">${getFeatherIcon('sparkles', { color: '#00F0FF', size: 22, strokeWidth: 2 })}</div>
         `;
 
         $("body").append(buttonHtml);
 
         const $button = $(`#${BUTTON_ID}`);
-        console.log("🐾 按钮创建结果:", $button.length > 0 ? "成功" : "失败");
+        console.log("[VirtualPet] 按钮创建结果:", $button.length > 0 ? "成功" : "失败");
 
         if ($button.length > 0) {
             // 绑定点击事件
             $button.off().on("click touchend", function(e) {
                 e.preventDefault();
-                console.log("🐾 按钮被点击");
+                console.log("[VirtualPet] 按钮被点击");
 
                 try {
                     // 所有平台都使用统一的showPopup函数
                     showPopup();
                 } catch (error) {
                     console.error("显示弹窗出错:", error);
-                    alert("🐾 虚拟宠物\n\n弹窗功能正在加载中...");
+                    alert("虚拟宠物\n\n弹窗功能正在加载中...");
                 }
             });
 
             // 使按钮可拖动
             makeButtonDraggable($button);
 
-            console.log("🐾 按钮应该现在可见了！");
+            console.log("[VirtualPet] 按钮应该现在可见了！");
         }
 
         return $button.length > 0;
@@ -6948,7 +7638,7 @@ ${currentPersonality}
                         showPopup();
                     } catch (error) {
                         console.error("弹窗错误:", error);
-                        alert("🐾 虚拟宠物系统\n\n弹窗功能正在加载中...");
+                        alert("虚拟宠物系统\n\n弹窗功能正在加载中...");
                     }
                 }
 
@@ -7054,11 +7744,11 @@ ${currentPersonality}
                         if (typeof showPopup === 'function') {
                             showPopup();
                         } else {
-                            alert("🐾 虚拟宠物系统\n\n弹窗功能正在加载中...");
+                            alert("虚拟宠物系统\n\n弹窗功能正在加载中...");
                         }
                     } catch (error) {
                         console.error("弹窗错误:", error);
-                        alert("🐾 虚拟宠物系统\n\n弹窗功能正在加载中...");
+                        alert("虚拟宠物系统\n\n弹窗功能正在加载中...");
                     }
                 } else {
                     // 保存位置
@@ -7080,92 +7770,6 @@ ${currentPersonality}
         return true;
     };
 
-    // 测试悬浮按钮切换功能
-    window.testToggleFunction = function() {
-        console.log("🎯 测试悬浮按钮切换功能...");
-
-        const button = $(`#${BUTTON_ID}`);
-        if (button.length === 0) {
-            console.log("❌ 悬浮按钮不存在");
-            return false;
-        }
-
-        console.log("✅ 悬浮按钮存在");
-        console.log(`当前弹窗状态: ${isPopupOpen ? '打开' : '关闭'}`);
-
-        // 检查弹窗实际状态
-        const overlay = $(`#${OVERLAY_ID}`);
-        const actuallyOpen = overlay.length > 0;
-        console.log(`实际弹窗状态: ${actuallyOpen ? '打开' : '关闭'}`);
-
-        // 状态一致性检查
-        const stateConsistent = isPopupOpen === actuallyOpen;
-        console.log(`状态一致性: ${stateConsistent ? '✅ 一致' : '❌ 不一致'}`);
-
-        // 模拟点击测试
-        console.log("🎯 模拟点击悬浮按钮...");
-        const initialState = isPopupOpen;
-
-        try {
-            // 直接调用切换函数
-            togglePopup();
-
-            setTimeout(() => {
-                const newState = isPopupOpen;
-                const newOverlay = $(`#${OVERLAY_ID}`);
-                const newActuallyOpen = newOverlay.length > 0;
-
-                console.log(`点击后状态: ${newState ? '打开' : '关闭'}`);
-                console.log(`点击后实际: ${newActuallyOpen ? '打开' : '关闭'}`);
-
-                const stateChanged = initialState !== newState;
-                const actualChanged = actuallyOpen !== newActuallyOpen;
-                const bothChanged = stateChanged && actualChanged;
-
-                console.log(`状态变化: ${stateChanged ? '✅' : '❌'}`);
-                console.log(`实际变化: ${actualChanged ? '✅' : '❌'}`);
-                console.log(`切换成功: ${bothChanged ? '✅' : '❌'}`);
-
-                // 再次点击测试
-                console.log("🎯 再次点击测试...");
-                togglePopup();
-
-                setTimeout(() => {
-                    const finalState = isPopupOpen;
-                    const finalOverlay = $(`#${OVERLAY_ID}`);
-                    const finalActuallyOpen = finalOverlay.length > 0;
-
-                    console.log(`最终状态: ${finalState ? '打开' : '关闭'}`);
-                    console.log(`最终实际: ${finalActuallyOpen ? '打开' : '关闭'}`);
-
-                    const backToOriginal = finalState === initialState;
-                    const actualBackToOriginal = finalActuallyOpen === actuallyOpen;
-
-                    console.log(`回到原状态: ${backToOriginal ? '✅' : '❌'}`);
-                    console.log(`实际回到原状态: ${actualBackToOriginal ? '✅' : '❌'}`);
-
-                    const allGood = stateConsistent && bothChanged && backToOriginal && actualBackToOriginal;
-                    console.log(`\n🎉 切换功能测试: ${allGood ? '完全成功！' : '需要检查'}`);
-
-                    if (allGood) {
-                        console.log("✅ 悬浮按钮切换功能正常工作");
-                        console.log("📋 功能说明:");
-                        console.log("  - 点击悬浮按钮可以打开弹窗");
-                        console.log("  - 再次点击悬浮按钮可以关闭弹窗");
-                        console.log("  - 点击弹窗外部也可以关闭弹窗");
-                        console.log("  - 弹窗内部没有关闭按钮");
-                    }
-
-                    return allGood;
-                }, 300);
-            }, 300);
-        } catch (error) {
-            console.error("切换功能测试失败:", error);
-            return false;
-        }
-
-        return true;
-    };
 
     // 验证拖动修复是否成功
     window.verifyDragFix = function() {
@@ -7207,7 +7811,7 @@ ${currentPersonality}
             button[0].style.setProperty('top', originalTop + 'px', 'important');
 
             const allGood = hasCorrectEvents && inViewport && positionWorks;
-            console.log(`\n🎉 拖动修复验证: ${allGood ? '完全成功！' : '需要进一步检查'}`);
+            console.log(`\n[DONE] 拖动修复验证: ${allGood ? '完全成功！' : '需要进一步检查'}`);
 
             if (allGood) {
                 console.log("✅ 拖动功能已完全修复并正常工作");
@@ -7225,8 +7829,6 @@ ${currentPersonality}
         return true;
     };
 
-    // 最终功能验证测试
-    window.testFinalDragFix = function() {
         console.log("🎯 最终拖动修复验证...");
 
         const button = $(`#${BUTTON_ID}`);
@@ -7239,160 +7841,6 @@ ${currentPersonality}
 
         // 检查事件绑定
         const events = $._data(button[0], "events");
-        const hasMouseDown = events && events.mousedown && events.mousedown.length > 0;
-        const hasTouchStart = events && events.touchstart && events.touchstart.length > 0;
-
-        console.log(`事件绑定检查:`);
-        console.log(`- mousedown: ${hasMouseDown ? '✅' : '❌'}`);
-        console.log(`- touchstart: ${hasTouchStart ? '✅' : '❌'}`);
-
-        // 检查位置
-        const rect = button[0].getBoundingClientRect();
-        const inViewport = rect.top >= 0 && rect.left >= 0 &&
-                          rect.bottom <= window.innerHeight && rect.right <= window.innerWidth;
-        console.log(`位置检查: ${inViewport ? '✅' : '❌'} - (${rect.left}, ${rect.top})`);
-
-        // 模拟位置测试
-        console.log("🎯 测试位置设置...");
-        const testX = 250;
-        const testY = 250;
-
-        button[0].style.setProperty('left', testX + 'px', 'important');
-        button[0].style.setProperty('top', testY + 'px', 'important');
-
-        setTimeout(() => {
-            const newRect = button[0].getBoundingClientRect();
-            const positionCorrect = Math.abs(newRect.left - testX) < 5 && Math.abs(newRect.top - testY) < 5;
-            console.log(`位置设置测试: ${positionCorrect ? '✅' : '❌'} - 实际位置: (${newRect.left}, ${newRect.top})`);
-
-            // 恢复原位置
-            button[0].style.setProperty('left', rect.left + 'px', 'important');
-            button[0].style.setProperty('top', rect.top + 'px', 'important');
-
-            // 总结
-            const allPassed = hasMouseDown && hasTouchStart && inViewport && positionCorrect;
-            console.log(`\n🎯 最终验证结果: ${allPassed ? '🎉 全部通过！' : '⚠️ 部分失败'}`);
-
-            if (allPassed) {
-                console.log("✅ 拖动和点击功能已完全修复！");
-                console.log("📋 使用说明:");
-                console.log("- 快速点击按钮 → 显示弹窗");
-                console.log("- 按住拖动按钮 → 移动位置");
-                console.log("- 拖动时有视觉反馈 → 半透明+放大");
-            } else {
-                console.log("❌ 仍有问题需要解决");
-            }
-
-            return allPassed;
-        }, 100);
-
-        return true;
-    };
-
-    // 立即测试切换功能
-    window.testToggleNow = function() {
-        console.log("🎯 立即测试悬浮按钮切换功能...");
-
-        const button = $('#virtual-pet-button');
-        if (button.length === 0) {
-            console.log("❌ 悬浮按钮不存在");
-            return false;
-        }
-
-        console.log("✅ 悬浮按钮存在");
-
-        // 检查当前状态
-        const overlay = $('#virtual-pet-popup-overlay');
-        const isCurrentlyOpen = overlay.length > 0;
-        console.log(`当前弹窗状态: ${isCurrentlyOpen ? '打开' : '关闭'}`);
-
-        // 模拟点击
-        console.log("🎯 模拟点击悬浮按钮...");
-
-        // 直接触发点击事件
-        button.trigger('click');
-
-        setTimeout(() => {
-            const newOverlay = $('#virtual-pet-popup-overlay');
-            const isNowOpen = newOverlay.length > 0;
-            console.log(`点击后弹窗状态: ${isNowOpen ? '打开' : '关闭'}`);
-
-            const stateChanged = isCurrentlyOpen !== isNowOpen;
-            console.log(`状态变化: ${stateChanged ? '✅ 成功' : '❌ 失败'}`);
-
-            if (stateChanged) {
-                console.log("🎯 再次点击测试...");
-                button.trigger('click');
-
-                setTimeout(() => {
-                    const finalOverlay = $('#virtual-pet-popup-overlay');
-                    const isFinallyOpen = finalOverlay.length > 0;
-                    console.log(`再次点击后状态: ${isFinallyOpen ? '打开' : '关闭'}`);
-
-                    const backToOriginal = isFinallyOpen === isCurrentlyOpen;
-                    console.log(`回到原状态: ${backToOriginal ? '✅ 成功' : '❌ 失败'}`);
-
-                    if (backToOriginal) {
-                        console.log("🎉 切换功能测试完全成功！");
-                        console.log("📋 使用说明:");
-                        console.log("  - 点击悬浮按钮 🐾 可以打开/关闭弹窗");
-                        console.log("  - 点击弹窗外部也可以关闭弹窗");
-                        console.log("  - 弹窗内部已移除关闭按钮");
-                        console.log("  - 操作更加直观简洁");
-                    } else {
-                        console.log("❌ 切换功能有问题，需要检查");
-                    }
-                }, 300);
-            } else {
-                console.log("❌ 切换功能不工作，可能需要修复");
-            }
-        }, 300);
-
-        return true;
-    };
-
-    // 测试所有修复的功能
-    window.testAllFixedFeatures = function() {
-        console.log("🎯 开始测试所有修复的功能...");
-
-        // 1. 测试玩耍图标
-        console.log("\n1. 测试玩耍图标:");
-        const playButtons = $('.play-btn span').first();
-        const playIconText = playButtons.text();
-        const playIconCorrect = playIconText.includes('🎮') && !playIconText.includes('�');
-        console.log(`玩耍图标: ${playIconCorrect ? '✅ 正确显示🎮' : '❌ 显示异常: ' + playIconText}`);
-
-        // 2. 测试宠物名字功能
-        console.log("\n2. 测试宠物名字功能:");
-        const petNameElements = $('.pet-name');
-        const hasNameElements = petNameElements.length > 0;
-        const hasClickEvent = petNameElements.first().attr('onclick') === 'editPetName()';
-        const hasEditFunction = typeof window.editPetName === 'function';
-        console.log(`名字元素: ${hasNameElements ? '✅ 找到' : '❌ 未找到'} (${petNameElements.length}个)`);
-        console.log(`点击事件: ${hasClickEvent ? '✅ 已绑定' : '❌ 未绑定'}`);
-        console.log(`编辑函数: ${hasEditFunction ? '✅ 存在' : '❌ 不存在'}`);
-        console.log(`当前名字: "${petData.name}"`);
-
-        // 3. 测试按钮功能
-        console.log("\n3. 测试按钮功能:");
-        const feedBtn = $('.feed-btn');
-        const playBtn = $('.play-btn');
-        const sleepBtn = $('.sleep-btn');
-        const hugBtn = $('.hug-btn');
-
-        console.log(`喂食按钮: ${feedBtn.length > 0 ? '✅ 存在' : '❌ 不存在'}`);
-        console.log(`玩耍按钮: ${playBtn.length > 0 ? '✅ 存在' : '❌ 不存在'}`);
-        console.log(`睡觉按钮: ${sleepBtn.length > 0 ? '✅ 存在' : '❌ 不存在'}`);
-        console.log(`抱抱按钮: ${hugBtn.length > 0 ? '✅ 存在' : '❌ 不存在'}`);
-
-        // 4. 测试状态数值
-        console.log("\n4. 测试状态数值:");
-        console.log(`健康: ${Math.round(petData.health)}/100`);
-        console.log(`饱食度: ${Math.round(petData.hunger)}/100`);
-        console.log(`快乐度: ${Math.round(petData.happiness)}/100`);
-        console.log(`精力: ${Math.round(petData.energy)}/100`);
-        console.log(`等级: ${petData.level}`);
-
         // 5. 测试糖果色主题
         console.log("\n5. 测试糖果色主题:");
         const hasCandy = typeof candyColors !== 'undefined';
@@ -7411,77 +7859,6 @@ ${currentPersonality}
         const allTests = [playIconCorrect, hasNameElements, hasClickEvent, hasEditFunction,
                          feedBtn.length > 0, playBtn.length > 0, sleepBtn.length > 0, hasCandy, hasUpdateFunction];
         const passedTests = allTests.filter(test => test).length;
-        const totalTests = allTests.length;
-
-        console.log(`\n🎯 测试总结: ${passedTests}/${totalTests} 项通过`);
-
-        if (passedTests === totalTests) {
-            console.log("🎉 所有功能测试通过！");
-        } else {
-            console.log("⚠️ 部分功能需要检查");
-        }
-
-        return {
-            passed: passedTests,
-            total: totalTests,
-            success: passedTests === totalTests
-        };
-    };
-
-    // 模拟按钮点击测试
-    window.testButtonClicks = function() {
-        console.log("🎯 测试按钮点击功能...");
-
-        const initialHealth = petData.health;
-        const initialHunger = petData.hunger;
-        const initialHappiness = petData.happiness;
-        const initialEnergy = petData.energy;
-
-        console.log("初始状态:", {
-            health: Math.round(initialHealth),
-            hunger: Math.round(initialHunger),
-            happiness: Math.round(initialHappiness),
-            energy: Math.round(initialEnergy)
-        });
-
-        // 模拟喂食
-        console.log("\n模拟喂食...");
-        feedPet();
-
-        setTimeout(() => {
-            console.log("喂食后状态:", {
-                health: Math.round(petData.health),
-                hunger: Math.round(petData.hunger),
-                happiness: Math.round(petData.happiness),
-                energy: Math.round(petData.energy)
-            });
-
-            const hungerChanged = petData.hunger !== initialHunger;
-            console.log(`饱食度变化: ${hungerChanged ? '✅ 正常' : '❌ 无变化'}`);
-
-            // 模拟玩耍
-            console.log("\n模拟玩耍...");
-            playWithPet();
-
-            setTimeout(() => {
-                console.log("玩耍后状态:", {
-                    health: Math.round(petData.health),
-                    hunger: Math.round(petData.hunger),
-                    happiness: Math.round(petData.happiness),
-                    energy: Math.round(petData.energy)
-                });
-
-                const happinessChanged = petData.happiness !== initialHappiness;
-                console.log(`快乐度变化: ${happinessChanged ? '✅ 正常' : '❌ 无变化'}`);
-
-                // 更新UI显示
-                updateUnifiedUIStatus();
-                console.log("✅ UI状态已更新");
-
-            }, 100);
-        }, 100);
-    };
-
     // 强制清理旧数据并应用新数值
     window.forceDataMigration = function() {
         console.log("🔄 强制执行数据迁移...");
@@ -7522,119 +7899,22 @@ ${currentPersonality}
         alert("数据迁移完成！新的初始数值已应用。");
     };
 
-    // 测试新的数值平衡
-    window.testNewBalance = function() {
-        console.log("🎯 测试新的数值平衡系统...");
-
-        // 显示当前数值
-        console.log("\n📊 当前状态:");
-        console.log(`健康: ${Math.round(petData.health)}/100`);
-        console.log(`饱食度: ${Math.round(petData.hunger)}/100`);
-        console.log(`快乐度: ${Math.round(petData.happiness)}/100`);
-        console.log(`精力: ${Math.round(petData.energy)}/100`);
-        console.log(`等级: ${petData.level}`);
-
-        // 测试操作效果
-        console.log("\n🧪 测试操作效果:");
-
-        const originalValues = {
-            health: petData.health,
-            hunger: petData.hunger,
-            happiness: petData.happiness,
-            energy: petData.energy
-        };
-
-        // 测试喂食
-        console.log("\n🍖 测试喂食效果:");
-        console.log(`喂食前 - 饱食度: ${Math.round(originalValues.hunger)}, 快乐度: ${Math.round(originalValues.happiness)}`);
-        feedPet();
-        console.log(`喂食后 - 饱食度: ${Math.round(petData.hunger)} (+${Math.round(petData.hunger - originalValues.hunger)}), 快乐度: ${Math.round(petData.happiness)} (+${Math.round(petData.happiness - originalValues.happiness)})`);
-
-        // 等待一下再测试玩耍
-        setTimeout(() => {
-            const beforePlay = {
-                happiness: petData.happiness,
-                energy: petData.energy
-            };
-
-            console.log("\n🎮 测试玩耍效果:");
-            console.log(`玩耍前 - 快乐度: ${Math.round(beforePlay.happiness)}, 精力: ${Math.round(beforePlay.energy)}`);
-            playWithPet();
-            console.log(`玩耍后 - 快乐度: ${Math.round(petData.happiness)} (+${Math.round(petData.happiness - beforePlay.happiness)}), 精力: ${Math.round(petData.energy)} (${Math.round(petData.energy - beforePlay.energy)})`);
-
-            // 等待一下再测试睡觉
-            setTimeout(() => {
-                const beforeSleep = {
-                    health: petData.health,
-                    energy: petData.energy
-                };
-
-                console.log("\n😴 测试睡觉效果:");
-                console.log(`睡觉前 - 健康: ${Math.round(beforeSleep.health)}, 精力: ${Math.round(beforeSleep.energy)}`);
-                petSleep();
-                console.log(`睡觉后 - 健康: ${Math.round(petData.health)} (+${Math.round(petData.health - beforeSleep.health)}), 精力: ${Math.round(petData.energy)} (+${Math.round(petData.energy - beforeSleep.energy)})`);
-
-                // 更新UI
-                updateUnifiedUIStatus();
-
-                console.log("\n📋 数值平衡总结:");
-                console.log("✅ 喂食: +15饱食度, +5快乐度, 20秒冷却");
-                console.log("✅ 玩耍: +12快乐度, -8精力, 40秒冷却");
-                console.log("✅ 睡觉: +20精力, +5健康, 80秒冷却");
-                console.log("✅ 时间衰减: 每12分钟更新，速度减缓60%");
-                console.log("✅ 初始数值: 健康40, 快乐30, 饱食50, 精力60");
-
-            }, 100);
-        }, 100);
-    };
 
 
 
     // 模拟时间流逝测试
-    window.testTimeDecay = function() {
-        console.log("⏰ 测试时间衰减效果...");
-
-        const before = {
-            health: petData.health,
-            hunger: petData.hunger,
-            happiness: petData.happiness,
-            energy: petData.energy
-        };
-
-        console.log("衰减前状态:", before);
-
-        // 模拟1小时时间流逝
-        updatePetStatus();
-
-        console.log("衰减后状态:", {
-            health: Math.round(petData.health),
-            hunger: Math.round(petData.hunger),
-            happiness: Math.round(petData.happiness),
-            energy: Math.round(petData.energy)
-        });
-
-        const changes = {
-            health: Math.round(petData.health - before.health),
-            hunger: Math.round(petData.hunger - before.hunger),
-            happiness: Math.round(petData.happiness - before.happiness),
-            energy: Math.round(petData.energy - before.energy)
-        };
-
-        console.log("数值变化:", changes);
-        updateUnifiedUIStatus();
-    };
 
     // 验证数值修复效果
     window.verifyInitialValues = function() {
-        console.log("🔍 验证初始数值修复效果...");
+        console.log("[CHECK] 验证初始数值修复效果...");
 
         // 检查当前数值
-        console.log("\n📊 当前宠物数值:");
-        console.log(`健康: ${petData.health}/100 ${petData.health === 40 ? '✅' : '❌ 应为40'}`);
-        console.log(`快乐度: ${petData.happiness}/100 ${petData.happiness === 30 ? '✅' : '❌ 应为30'}`);
-        console.log(`饱食度: ${petData.hunger}/100 ${petData.hunger === 50 ? '✅' : '❌ 应为50'}`);
-        console.log(`精力: ${petData.energy}/100 ${petData.energy === 60 ? '✅' : '❌ 应为60'}`);
-        console.log(`数据版本: ${petData.dataVersion} ${petData.dataVersion === 2.0 ? '✅' : '❌ 应为2.0'}`);
+        console.log("\n[STATS] 当前宠物数值:");
+        console.log(`健康: ${petData.health}/100 ${petData.health === 100 ? '[OK]' : '[ERR] 应为100'}`);
+        console.log(`快乐度: ${petData.happiness}/100 ${petData.happiness === 50 ? '[OK]' : '[ERR] 应为50'}`);
+        console.log(`饱食度: ${petData.hunger}/100 ${petData.hunger === 40 ? '[OK]' : '[ERR] 应为40'}`);
+        console.log(`精力: ${petData.energy}/100 ${petData.energy === 50 ? '[OK]' : '[ERR] 应为50'}`);
+        console.log(`数据版本: ${petData.dataVersion}`)
 
         // 检查UI显示
         console.log("\n🖥️ UI显示检查:");
@@ -7645,10 +7925,10 @@ ${currentPersonality}
 
     // 全面检查数值系统
     window.checkValueSystem = function() {
-        console.log('=== 🔍 数值系统全面检查 ===');
+        console.log('=== [CHECK] 数值系统全面检查 ===');
 
         // 1. 基本数值检查
-        console.log('\n📊 1. 基本数值状态:');
+        console.log('\n[STATS] 1. 基本数值状态:');
         console.log(`健康: ${petData.health} (${typeof petData.health})`);
         console.log(`快乐: ${petData.happiness} (${typeof petData.happiness})`);
         console.log(`饱食: ${petData.hunger} (${typeof petData.hunger})`);
@@ -7774,7 +8054,7 @@ ${currentPersonality}
         if (statusBars.length === 0) issues.push('UI显示异常');
 
         if (issues.length === 0) {
-            console.log('🎉 数值系统运行正常！');
+            console.log('[DONE] 数值系统运行正常！');
         } else {
             console.log('⚠️ 发现以下问题:');
             issues.forEach(issue => console.log(`  - ${issue}`));
@@ -7942,8 +8222,8 @@ ${currentPersonality}
                 console.log('⚠️ 无自定义头像需要同步');
             }
 
-            console.log('🎉 所有数据同步完成！');
-            toastr.success('所有数据已同步到云端！现在可以在其他设备上访问了。', '🎉 同步成功', { timeOut: 5000 });
+            console.log('[DONE] 所有数据同步完成！');
+            toastr.success('所有数据已同步到云端！现在可以在其他设备上访问了。', '同步成功', { timeOut: 5000 });
 
         } catch (error) {
             console.error('❌ 同步过程中出现错误:', error);
@@ -7953,50 +8233,6 @@ ${currentPersonality}
         return syncResults;
     };
 
-    // 专门测试头像同步
-    window.testAvatarSync = function() {
-        console.log('🎨 测试头像同步功能...');
-
-        // 检查本地头像
-        const localAvatar = localStorage.getItem(STORAGE_KEY_CUSTOM_AVATAR);
-        console.log('本地头像:', localAvatar ? `存在 (${Math.round(localAvatar.length/1024)}KB)` : '不存在');
-
-        // 检查同步头像
-        const syncAvatar = loadAvatarFromSync();
-        console.log('同步头像:', syncAvatar ? `存在 (${Math.round(syncAvatar.length/1024)}KB)` : '不存在');
-
-        // 检查当前使用的头像
-        console.log('当前头像:', customAvatarData ? `已加载 (${Math.round(customAvatarData.length/1024)}KB)` : '未加载');
-
-        // 如果有同步头像但本地没有，尝试同步
-        if (syncAvatar && !localAvatar) {
-            console.log('🔄 发现同步头像，正在同步到本地...');
-            localStorage.setItem(STORAGE_KEY_CUSTOM_AVATAR, syncAvatar);
-            customAvatarData = syncAvatar;
-            updateAvatarDisplay();
-            updateFloatingButtonAvatar();
-            console.log('✅ 头像同步完成');
-            toastr.success('头像已从云端同步！', '🎨 头像同步', { timeOut: 3000 });
-        } else if (localAvatar && !syncAvatar) {
-            console.log('🔄 发现本地头像，正在同步到云端...');
-            saveAvatarToSync(localAvatar);
-            console.log('✅ 头像已同步到云端');
-            toastr.success('头像已同步到云端！', '🎨 头像同步', { timeOut: 3000 });
-        } else if (syncAvatar && localAvatar) {
-            console.log('✅ 头像已在本地和云端同步');
-            toastr.info('头像已同步', '🎨 头像状态', { timeOut: 2000 });
-        } else {
-            console.log('ℹ️ 未发现自定义头像');
-            toastr.info('未发现自定义头像', '🎨 头像状态', { timeOut: 2000 });
-        }
-
-        return {
-            hasLocal: !!localAvatar,
-            hasSync: !!syncAvatar,
-            hasCurrent: !!customAvatarData,
-            timestamp: new Date().toISOString()
-        };
-    };
 
     // 导出宠物数据
     window.exportPetData = function() {
@@ -8097,7 +8333,7 @@ ${currentPersonality}
         const localData = localStorage.getItem(STORAGE_KEY_PET_DATA);
         const syncData = loadFromSyncStorage();
 
-        console.log('\n📱 宠物数据 - 本地:');
+        console.log('\n[DEVICE] 宠物数据 - 本地:');
         if (localData) {
             try {
                 const local = JSON.parse(localData);
@@ -8112,7 +8348,7 @@ ${currentPersonality}
             console.log('- 无本地数据');
         }
 
-        console.log('\n☁️ 宠物数据 - 同步:');
+        console.log('\n[CLOUD] 宠物数据 - 同步:');
         if (syncData) {
             try {
                 const sync = typeof syncData === 'object' ? syncData : JSON.parse(syncData);
@@ -8224,57 +8460,6 @@ ${currentPersonality}
         };
     };
 
-    // 测试拓麻歌子系统
-    window.testTamagotchiSystem = function() {
-        console.log('🥚 测试拓麻歌子系统...');
-
-        console.log('\n📊 当前拓麻歌子状态:');
-        console.log(`生命阶段: ${petData.lifeStage} (${LIFE_STAGES[petData.lifeStage]?.name})`);
-        console.log(`年龄: ${Math.round(petData.age)}小时`);
-        console.log(`是否存活: ${petData.isAlive ? '✅ 是' : '❌ 否'}`);
-        console.log(`疾病程度: ${petData.sickness}/100`);
-        console.log(`纪律值: ${petData.discipline}/100`);
-        console.log(`体重: ${petData.weight}kg`);
-        console.log(`忽视次数: ${petData.careNeglectCount}`);
-        console.log(`生病持续: ${Math.round(petData.sicknessDuration)}小时`);
-
-        if (petData.deathReason) {
-            console.log(`死亡原因: ${petData.deathReason}`);
-        }
-
-        console.log('\n⏰ 时间检查:');
-        const now = Date.now();
-        const timeSinceLastCare = now - petData.lastCareTime;
-        const hoursSinceLastCare = timeSinceLastCare / (1000 * 60 * 60);
-        console.log(`距离上次照顾: ${Math.round(hoursSinceLastCare * 100) / 100}小时`);
-
-        console.log('\n🎯 拓麻歌子式特性:');
-        console.log('- ✅ 真实时间流逝（不限制24小时）');
-        console.log('- ✅ 生命阶段系统');
-        console.log('- ✅ 死亡机制');
-        console.log('- ✅ 疾病系统');
-        console.log('- ✅ 忽视照顾惩罚');
-        console.log('- ✅ 体重管理');
-
-        console.log('\n🔧 可用命令:');
-        console.log('- feedPet() - 喂食');
-        console.log('- playWithPet() - 玩耍');
-        console.log('- petSleep() - 休息');
-        console.log('- healPet() - 治疗');
-        console.log('- resetPet() - 重新开始');
-
-        return {
-            lifeStage: petData.lifeStage,
-            age: petData.age,
-            isAlive: petData.isAlive,
-            sickness: petData.sickness,
-            discipline: petData.discipline,
-            weight: petData.weight,
-            careNeglectCount: petData.careNeglectCount,
-            hoursSinceLastCare: hoursSinceLastCare,
-            timestamp: new Date().toISOString()
-        };
-    };
 
     // 商店系统功能
     function showShopModal() {
@@ -8317,9 +8502,9 @@ ${currentPersonality}
                         border-bottom: 1px solid rgba(255,255,255,0.2) !important;
                         padding-bottom: 15px !important;
                     ">
-                        <h2 style="margin: 0 !important; color: #ffd700 !important;">🛒 宠物商店</h2>
-                        <div style="color: #ffd700 !important; font-weight: bold !important;">
-                            💰 ${petData.coins || 100} 金币
+                        <h2 style="margin: 0 !important; color: #ffd700 !important; display: flex !important; align-items: center !important; gap: 8px !important;">${getFeatherIcon('shopping-bag', { color: '#ffd700', size: 24 })} 宠物商店</h2>
+                        <div style="color: #ffd700 !important; font-weight: bold !important; display: flex !important; align-items: center !important; gap: 6px !important;">
+                            ${getFeatherIcon('star', { color: '#ffd700', size: 18 })} ${petData.coins || 100} 金币
                         </div>
                     </div>
 
@@ -8374,7 +8559,7 @@ ${currentPersonality}
                             border-radius: 20px !important;
                             cursor: pointer !important;
                             font-size: 0.9em !important;
-                        ">✨ 特殊</button>
+                        ">${getFeatherIcon('sparkles', { color: 'currentColor', size: 16 })} 特殊</button>
                     </div>
 
                     <div id="shop-items" style="
@@ -8441,8 +8626,8 @@ ${currentPersonality}
                         text-align: center !important;
                         border: 2px solid ${canAfford ? 'rgba(255,215,0,0.5)' : 'rgba(255,255,255,0.2)'} !important;
                     ">
-                        <div style="font-size: 2em !important; margin-bottom: 8px !important;">
-                            ${item.emoji}
+                        <div style="font-size: 2em !important; margin-bottom: 8px !important; display: flex !important; justify-content: center !important; align-items: center !important;">
+                            ${getFeatherIcon(item.emoji, { color: '#ffd700', size: 32 })}
                         </div>
                         <div style="font-weight: bold !important; margin-bottom: 5px !important;">
                             ${item.name}
@@ -8450,8 +8635,8 @@ ${currentPersonality}
                         <div style="font-size: 0.8em !important; color: rgba(255,255,255,0.8) !important; margin-bottom: 8px !important; min-height: 32px !important;">
                             ${item.description}
                         </div>
-                        <div style="color: #ffd700 !important; font-weight: bold !important; margin-bottom: 8px !important;">
-                            💰 ${item.price} 金币
+                        <div style="color: #ffd700 !important; font-weight: bold !important; margin-bottom: 8px !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: 6px !important;">
+                            ${getFeatherIcon('star', { color: '#ffd700', size: 16 })} ${item.price} 金币
                         </div>
                         ${ownedCount > 0 ? `
                         <div style="color: #4ecdc4 !important; font-size: 0.8em !important; margin-bottom: 8px !important;">
@@ -8498,9 +8683,6 @@ ${currentPersonality}
         if (!petData.inventory) petData.inventory = {};
         petData.inventory[itemId] = (petData.inventory[itemId] || 0) + 1;
 
-        // 立即使用物品效果
-        useItem(itemId);
-
         // 保存数据
         savePetData();
 
@@ -8510,9 +8692,9 @@ ${currentPersonality}
         }).data('category') || 'all';
 
         $('#shop-items').html(generateShopItems(currentCategory));
-        $('.shop-modal h2').next().html(`💰 ${petData.coins} 金币`);
+        $('.shop-modal h2').next().html(`${getFeatherIcon('star', { color: '#ffd700', size: 18 })} ${petData.coins} 金币`);
 
-        toastr.success(`购买成功！${item.name} 已自动使用。`);
+        toastr.success(`购买成功！${item.name} 已添加到背包。`);
     };
 
     function useItem(itemId) {
@@ -8562,42 +8744,239 @@ ${currentPersonality}
         $('#shop-modal').remove();
     };
 
-    // 测试商店系统
-    window.testShopSystem = function() {
-        console.log('🛒 测试商店系统...');
 
-        console.log('\n💰 当前金币状态:');
-        console.log(`金币: ${petData.coins || 100}`);
+    // 背包系统功能
+    function showBackpackModal() {
+        // 检测移动端状态
+        const isMobile = window.innerWidth <= 768;
+        const containerMaxWidth = isMobile ? '300px' : '380px';
 
-        console.log('\n📦 当前库存:');
-        if (petData.inventory && Object.keys(petData.inventory).length > 0) {
-            Object.entries(petData.inventory).forEach(([itemId, count]) => {
-                const item = SHOP_ITEMS[itemId];
-                console.log(`${item ? item.emoji + ' ' + item.name : itemId}: ${count}`);
-            });
-        } else {
-            console.log('库存为空');
+        // 初始化背包数据
+        if (!petData.inventory) {
+            petData.inventory = {};
         }
 
-        console.log('\n🏪 商店物品:');
-        Object.entries(SHOP_ITEMS).forEach(([itemId, item]) => {
-            const canAfford = (petData.coins || 100) >= item.price;
-            console.log(`${item.emoji} ${item.name} - ${item.price}金币 ${canAfford ? '✅' : '❌'}`);
+        // 创建背包弹窗
+        const backpackModal = $(`
+            <div id="backpack-modal" style="
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                background-color: rgba(0, 0, 0, 0.8) !important;
+                z-index: 1000000 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                padding: 20px !important;
+                box-sizing: border-box !important;
+            ">
+                <div style="
+                    background: linear-gradient(135deg, #8B4513 0%, #A0522D 100%) !important;
+                    border-radius: 15px !important;
+                    padding: 20px !important;
+                    max-width: ${containerMaxWidth} !important;
+                    width: 100% !important;
+                    max-height: 70vh !important;
+                    overflow-y: auto !important;
+                    color: white !important;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.3) !important;
+                ">
+                    <div style="
+                        display: flex !important;
+                        justify-content: space-between !important;
+                        align-items: center !important;
+                        margin-bottom: 20px !important;
+                        border-bottom: 1px solid rgba(255,255,255,0.2) !important;
+                        padding-bottom: 15px !important;
+                    ">
+                        <h2 style="margin: 0 !important; color: #ffd700 !important; display: flex !important; align-items: center !important; gap: 8px !important;">${getFeatherIcon('package', { color: '#ffd700', size: 24 })} 我的背包</h2>
+                        <button id="close-backpack" style="
+                            background: rgba(255,255,255,0.2) !important;
+                            border: none !important;
+                            color: white !important;
+                            padding: 8px 12px !important;
+                            border-radius: 5px !important;
+                            cursor: pointer !important;
+                            font-size: 1.2em !important;
+                        ">${getFeatherIcon('x', { color: 'white', size: 18 })}</button>
+                    </div>
+
+                    <div id="backpack-content" style="
+                        display: grid !important;
+                        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)) !important;
+                        gap: 10px !important;
+                        min-height: 200px !important;
+                    ">
+                        <!-- 背包物品将在这里显示 -->
+                    </div>
+
+                    <div style="
+                        margin-top: 20px !important;
+                        padding-top: 15px !important;
+                        border-top: 1px solid rgba(255,255,255,0.2) !important;
+                        text-align: center !important;
+                        color: rgba(255,255,255,0.7) !important;
+                        font-size: 0.9em !important;
+                    ">
+                        点击物品使用 • 长按查看详情
+                    </div>
+                </div>
+            </div>
+        `);
+
+        $('body').append(backpackModal);
+
+        // 渲染背包物品
+        renderBackpackItems();
+
+        // 绑定关闭事件
+        $('#close-backpack').on('click', function() {
+            $('#backpack-modal').remove();
         });
 
-        console.log('\n🎮 可用命令:');
-        console.log('- openShop() - 打开商店');
-        console.log('- buyItem("itemId") - 购买物品');
-        console.log('- gainCoins(amount) - 获得金币');
-        console.log('- petData.coins = 1000 - 设置金币数量');
+        // 点击背景关闭
+        $('#backpack-modal').on('click', function(e) {
+            if (e.target === this) {
+                $(this).remove();
+            }
+        });
+    }
 
-        return {
-            coins: petData.coins || 100,
-            inventory: petData.inventory || {},
-            shopItems: Object.keys(SHOP_ITEMS).length,
-            timestamp: new Date().toISOString()
-        };
-    };
+    // 渲染背包物品
+    function renderBackpackItems() {
+        const $content = $('#backpack-content');
+        $content.empty();
+
+        const inventory = petData.inventory || {};
+        const hasItems = Object.keys(inventory).length > 0;
+
+        if (!hasItems) {
+            $content.html(`
+                <div style="
+                    grid-column: 1 / -1 !important;
+                    text-align: center !important;
+                    color: rgba(255,255,255,0.6) !important;
+                    padding: 40px 20px !important;
+                    font-size: 1.1em !important;
+                ">
+                    ${getFeatherIcon('package', { color: 'rgba(255,255,255,0.6)', size: 32 })} 背包空空如也<br>
+                    <span style="font-size: 0.9em !important;">去商店购买一些物品吧！</span>
+                </div>
+            `);
+            return;
+        }
+
+        // 显示背包物品
+        Object.entries(inventory).forEach(([itemId, quantity]) => {
+            if (quantity > 0) {
+                const item = SHOP_ITEMS[itemId];
+                if (item) {
+                    const $item = $(`
+                        <div class="backpack-item" data-item-id="${itemId}" style="
+                            background: rgba(255,255,255,0.1) !important;
+                            border: 2px solid rgba(255,255,255,0.2) !important;
+                            border-radius: 10px !important;
+                            padding: 10px !important;
+                            text-align: center !important;
+                            cursor: pointer !important;
+                            transition: all 0.3s ease !important;
+                            position: relative !important;
+                        ">
+                            <div style="font-size: 2em !important; margin-bottom: 5px !important; display: flex !important; justify-content: center !important; align-items: center !important;">${getFeatherIcon(item.emoji, { color: 'white', size: 28 })}</div>
+                            <div style="font-size: 0.8em !important; color: white !important; margin-bottom: 3px !important;">${item.name}</div>
+                            <div style="
+                                position: absolute !important;
+                                top: -5px !important;
+                                right: -5px !important;
+                                background: #ff4444 !important;
+                                color: white !important;
+                                border-radius: 50% !important;
+                                width: 20px !important;
+                                height: 20px !important;
+                                display: flex !important;
+                                align-items: center !important;
+                                justify-content: center !important;
+                                font-size: 0.7em !important;
+                                font-weight: bold !important;
+                            ">${quantity}</div>
+                        </div>
+                    `);
+
+                    // 悬停效果
+                    $item.hover(
+                        function() {
+                            $(this).css({
+                                'background': 'rgba(255,255,255,0.2)',
+                                'border-color': '#ffd700',
+                                'transform': 'scale(1.05)'
+                            });
+                        },
+                        function() {
+                            $(this).css({
+                                'background': 'rgba(255,255,255,0.1)',
+                                'border-color': 'rgba(255,255,255,0.2)',
+                                'transform': 'scale(1)'
+                            });
+                        }
+                    );
+
+                    // 点击使用物品
+                    $item.on('click', function() {
+                        useBackpackItem(itemId);
+                    });
+
+                    $content.append($item);
+                }
+            }
+        });
+    }
+
+    // 使用背包物品
+    function useBackpackItem(itemId) {
+        const item = SHOP_ITEMS[itemId];
+        const quantity = petData.inventory[itemId] || 0;
+
+        if (quantity <= 0) {
+            toastr.error("物品数量不足！");
+            return;
+        }
+
+        if (!item) {
+            toastr.error("未知物品！");
+            return;
+        }
+
+        // 使用物品效果
+        if (item.effect) {
+            Object.entries(item.effect).forEach(([stat, value]) => {
+                if (petData.hasOwnProperty(stat)) {
+                    petData[stat] = Math.min(100, Math.max(0, petData[stat] + value));
+                }
+            });
+        }
+
+        // 减少物品数量
+        petData.inventory[itemId]--;
+        if (petData.inventory[itemId] <= 0) {
+            delete petData.inventory[itemId];
+        }
+
+        // 保存数据并更新UI
+        savePetData();
+        renderBackpackItems();
+
+        // 显示使用效果
+        toastr.success(`使用了 ${item.name}！`);
+
+        // 更新主界面状态
+        setTimeout(() => {
+            if (typeof updateUnifiedUIStatus === 'function') {
+                updateUnifiedUIStatus();
+            }
+        }, 100);
+    }
 
     // 强制更新到拓麻歌子系统
     window.forceUpdateToTamagotchi = function() {
@@ -8714,7 +9093,7 @@ ${currentPersonality}
         savePetData();
 
         console.log('✅ 所有问题修复完成！');
-        toastr.success('🎉 所有问题已修复！商店按钮和拓麻歌子系统现在应该正常工作了！');
+        toastr.success('所有问题已修复！商店按钮和拓麻歌子系统现在应该正常工作了！');
 
         return {
             fixed: true,
@@ -8723,68 +9102,6 @@ ${currentPersonality}
         };
     };
 
-    // 测试拓麻歌子UI风格 (糖果色版本)
-    window.testTamagotchiUI = function() {
-        console.log('🎮 测试拓麻歌子UI风格 (糖果色版本)...');
-
-        console.log('\n🎨 配色方案:');
-        console.log(`主背景: ${candyColors.background}`);
-        console.log(`屏幕色: ${candyColors.screen}`);
-        console.log(`边框色: ${candyColors.border}`);
-        console.log(`文字色: ${candyColors.textPrimary}`);
-
-        console.log('\n🎯 UI特性:');
-        console.log('✅ 像素化字体 (Courier New)');
-        console.log('✅ 方形边框 (border-radius: 0)');
-        console.log('✅ 糖果色渐变背景');
-        console.log('✅ 柔和粉色阴影');
-        console.log('✅ 大写英文按钮文字');
-        console.log('✅ 拓麻歌子式状态栏');
-
-        console.log('\n🔧 可用命令:');
-        console.log('- fixAllIssues() - 修复所有问题');
-        console.log('- showPopup() - 显示拓麻歌子UI');
-        console.log('- testTamagotchiSystem() - 测试拓麻歌子系统');
-        console.log('- forceApplyTamagotchiSystem() - 强制应用拓麻歌子系统（修复金币问题）');
-        console.log('- testCleanPrompt() - 测试优化后的提示词（避免AI混淆金币）');
-        console.log('- diagnoseRewardSystem() - 诊断金币和经验值问题');
-        console.log('- checkInteractionFunctions() - 检查当前使用的互动函数版本');
-        console.log('- testSimpleInteraction() - 测试简化互动（不包含AI）');
-        console.log('- testInteractionFlow() - 测试完整互动流程（包含AI）');
-        console.log('- traceFeedPetExecution() - 追踪喂食函数的详细执行流程');
-        console.log('- checkUIButtonBinding() - 检查UI按钮事件绑定');
-        console.log('- traceUIFeedPet() - 追踪UI点击时的函数调用');
-        console.log('- restoreOriginalFunctions() - 恢复原始函数（追踪后使用）');
-        console.log('- checkFeedPetVersions() - 检查不同作用域的feedPet函数并修复UI绑定');
-        console.log('- testFixedUIButton() - 测试修复后的UI按钮（包含详细追踪）');
-        console.log('- testUIAfterCooldown() - 等待冷却时间后测试UI按钮');
-        console.log('- inspectUIFeedPet() - 检查UI实际调用的函数并强制修复');
-        console.log('- forceUIRefresh() - 强制刷新UI显示（解决金币显示延迟）');
-        console.log('- testRewardDisplay() - 测试奖励显示系统');
-        console.log('- adjustDecaySystem() - 调整衰减速度');
-        console.log('- testNewDecaySystem() - 测试衰减效果');
-        console.log('- testNewValueBalance() - 测试智能初始化系统的数值平衡');
-        console.log('- testHugFunction() - 测试抱抱功能（检查按钮、函数、奖励）');
-        console.log('- testHugFunctionComplete() - 完整测试抱抱功能（包括前后检查）');
-        console.log('- quickVerifyHugFunction() - 快速验证抱抱功能是否完整');
-        console.log('- diagnose75ValueIssue() - 诊断和修复75数值问题');
-        console.log('- testSmartInitSystem() - 测试智能初始化系统');
-        console.log('- resetRandomizationFlag() - 重置随机化标记（测试用）');
-        console.log('- diagnoseValueResetIssue() - 诊断数值重置问题');
-
-        // 强制刷新UI
-        if (typeof renderPetStatus === 'function') {
-            renderPetStatus();
-        }
-
-        toastr.success('🎮 糖果色拓麻歌子UI风格已应用！重新打开宠物界面查看效果。');
-
-        return {
-            uiStyle: 'tamagotchi-candy',
-            colors: candyColors,
-            timestamp: new Date().toISOString()
-        };
-    };
 
     // 测试新的状态栏颜色
     window.testStatusColors = function() {
@@ -8812,7 +9129,7 @@ ${currentPersonality}
         console.log('✅ 统一了移动端和桌面端的颜色');
         console.log('✅ 按钮颜色与糖果色主题协调');
 
-        toastr.success('🎨 状态栏颜色已优化！重新打开宠物界面查看美丽的糖果色效果。');
+        toastr.success('状态栏颜色已优化！重新打开宠物界面查看美丽的糖果色效果。');
 
         return {
             statusColors: {
@@ -8826,50 +9143,6 @@ ${currentPersonality}
         };
     };
 
-    // 测试治疗按钮功能
-    window.testHealButton = function() {
-        console.log('💊 测试治疗按钮功能...');
-
-        const sicknessLevel = petData.sickness || 0;
-
-        console.log('\n🏥 当前状态:');
-        console.log(`疾病值: ${sicknessLevel}`);
-        console.log(`健康值: ${petData.health}`);
-        console.log(`是否存活: ${petData.isAlive}`);
-
-        console.log('\n🎯 治疗按钮状态:');
-        if (sicknessLevel > 10) {
-            console.log('✅ 治疗按钮激活 - 宠物生病了');
-            console.log(`- 背景色: ${candyColors.health} (糖果粉)`);
-            console.log('- 透明度: 1.0 (完全可见)');
-            console.log('- 鼠标样式: pointer (可点击)');
-        } else {
-            console.log('⚠️ 治疗按钮禁用 - 宠物很健康');
-            console.log(`- 背景色: ${candyColors.secondary} (灰色)`);
-            console.log('- 透明度: 0.5 (半透明)');
-            console.log('- 鼠标样式: not-allowed (禁用)');
-        }
-
-        console.log('\n🧪 测试命令:');
-        console.log('- healPet() - 尝试治疗宠物');
-        console.log('- petData.sickness = 50 - 设置宠物生病');
-        console.log('- petData.sickness = 0 - 设置宠物健康');
-        console.log('- renderPetStatus() - 刷新UI显示');
-
-        console.log('\n💡 功能特性:');
-        console.log('✅ 治疗按钮常驻显示');
-        console.log('✅ 生病时可点击，健康时禁用');
-        console.log('✅ 视觉反馈：颜色和透明度变化');
-        console.log('✅ 点击反馈：健康时显示随机提示');
-        console.log('✅ 治疗效果：降低疾病值，提升健康值');
-
-        return {
-            sicknessLevel: sicknessLevel,
-            canHeal: sicknessLevel > 10,
-            buttonState: sicknessLevel > 10 ? 'active' : 'disabled',
-            timestamp: new Date().toISOString()
-        };
-    };
 
     // 测试按钮文字和样式
     window.testButtonStyles = function() {
@@ -8914,66 +9187,6 @@ ${currentPersonality}
         };
     };
 
-    // 测试时间衰减修复
-    window.testDecayFix = function() {
-        console.log('⏰ 测试时间衰减修复...');
-
-        console.log('\n📊 当前衰减速度:');
-        console.log('饱食度: 每小时 -1.2 (原来 -3.0)');
-        console.log('精力: 每小时 -1.0 (原来 -2.5)');
-        console.log('快乐度: 每小时 -0.8 (原来 -2.0)');
-
-        console.log('\n🛡️ 初始化缓冲机制:');
-        console.log('✅ 长时间未更新时自动缓冲');
-        console.log('✅ 最低饱食度: 30');
-        console.log('✅ 最低精力: 25');
-        console.log('✅ 最低快乐度: 20');
-        console.log('✅ 最低健康度: 35');
-
-        const now = Date.now();
-        const timeSinceLastUpdate = now - (petData.lastUpdateTime || now);
-        const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
-
-        console.log('\n⏱️ 当前状态:');
-        console.log(`距离上次更新: ${hoursElapsed.toFixed(1)} 小时`);
-        console.log(`饱食度: ${Math.round(petData.hunger)}`);
-        console.log(`精力: ${Math.round(petData.energy)}`);
-        console.log(`快乐度: ${Math.round(petData.happiness)}`);
-        console.log(`健康度: ${Math.round(petData.health)}`);
-
-        console.log('\n🧪 测试命令:');
-        console.log('- applyInitializationBuffer() - 手动应用缓冲');
-        console.log('- petData.lastUpdateTime = Date.now() - 4*60*60*1000 - 模拟4小时前');
-        console.log('- updatePetStatus() - 手动更新状态');
-
-        console.log('\n💡 修复效果:');
-        console.log('✅ 重新打开SillyTavern时不会立即提示需要休息');
-        console.log('✅ 衰减速度更合理，不会过快下降');
-        console.log('✅ 长时间离开后有基础缓冲保护');
-        console.log('✅ 用户体验更友好');
-
-        return {
-            decayRates: {
-                hunger: -1.2,
-                energy: -1.0,
-                happiness: -0.8
-            },
-            bufferThresholds: {
-                hunger: 30,
-                energy: 25,
-                happiness: 20,
-                health: 35
-            },
-            hoursElapsed: hoursElapsed,
-            currentStatus: {
-                hunger: Math.round(petData.hunger),
-                energy: Math.round(petData.energy),
-                happiness: Math.round(petData.happiness),
-                health: Math.round(petData.health)
-            },
-            timestamp: new Date().toISOString()
-        };
-    };
 
     // 测试设置按钮颜色修复
     window.testSettingsButtonColor = function() {
@@ -8997,22 +9210,22 @@ ${currentPersonality}
         console.log('🛒 商店: 柠檬黄背景 + 深灰文字');
         console.log('⚙️ 设置: 紫色背景 + 白色文字 ← 已修复');
 
-        console.log('\n🔍 颜色对比度分析:');
-        console.log('设置按钮: 紫色(#8B5CF6) + 白色(#FFFFFF) = 高对比度 ✅');
-        console.log('其他按钮: 浅色背景 + 深色文字 = 良好对比度 ✅');
+        console.log('\n[CHECK] 颜色对比度分析:');
+        console.log('设置按钮: 紫色(#8B5CF6) + 白色(#FFFFFF) = 高对比度 [OK]');
+        console.log('其他按钮: 浅色背景 + 深色文字 = 良好对比度 [OK]');
 
-        console.log('\n🎨 设计原则:');
-        console.log('✅ 保持拓麻歌子像素风格');
-        console.log('✅ 确保文字清晰可读');
-        console.log('✅ 与糖果色主题协调');
-        console.log('✅ 设置按钮有独特识别度');
+        console.log('\n[DESIGN] 设计原则:');
+        console.log('[OK] 保持拓麻歌子像素风格');
+        console.log('[OK] 确保文字清晰可读');
+        console.log('[OK] 与糖果色主题协调');
+        console.log('[OK] 设置按钮有独特识别度');
 
-        console.log('\n🧪 测试方法:');
+        console.log('\n[TEST] 测试方法:');
         console.log('1. 重新打开宠物界面');
         console.log('2. 检查设置按钮是否清晰可见');
         console.log('3. 确认文字与背景对比度足够');
 
-        toastr.success('🎨 设置按钮颜色已修复！现在文字清晰可见了。');
+        toastr.success('设置按钮颜色已修复！现在文字清晰可见了。');
 
         return {
             fixed: true,
@@ -9440,21 +9653,14 @@ ${currentPersonality}
         };
     }
 
-    // 拓麻歌子式生命阶段定义
-    const LIFE_STAGES = {
-        baby: { name: "幼体", duration: 24, emoji: "🥚" },      // 24小时
-        child: { name: "儿童", duration: 48, emoji: "🐣" },     // 48小时
-        teen: { name: "少年", duration: 72, emoji: "🐤" },      // 72小时
-        adult: { name: "成年", duration: 120, emoji: "🐦" },    // 120小时
-        senior: { name: "老年", duration: 48, emoji: "🦅" }     // 48小时后死亡
-    };
+    // LIFE_STAGES is defined earlier (moved up to avoid TDZ)
 
     // 商店物品定义
     const SHOP_ITEMS = {
         // 食物类
         basic_food: {
             name: "基础食物",
-            emoji: "🍎",
+            emoji: "apple",
             price: 10,
             category: "food",
             description: "普通的食物，恢复饱食度",
@@ -9462,7 +9668,7 @@ ${currentPersonality}
         },
         premium_food: {
             name: "高级食物",
-            emoji: "🍖",
+            emoji: "sandwich",
             price: 25,
             category: "food",
             description: "营养丰富的食物，恢复饱食度和健康",
@@ -9470,7 +9676,7 @@ ${currentPersonality}
         },
         special_treat: {
             name: "特殊零食",
-            emoji: "🍰",
+            emoji: "cake",
             price: 40,
             category: "food",
             description: "美味的零食，大幅提升快乐度",
@@ -9480,7 +9686,7 @@ ${currentPersonality}
         // 药品类
         medicine: {
             name: "感冒药",
-            emoji: "💊",
+            emoji: "pill",
             price: 30,
             category: "medicine",
             description: "治疗轻微疾病",
@@ -9488,7 +9694,7 @@ ${currentPersonality}
         },
         super_medicine: {
             name: "特效药",
-            emoji: "💉",
+            emoji: "syringe",
             price: 80,
             category: "medicine",
             description: "治疗严重疾病，完全恢复健康",
@@ -9498,7 +9704,7 @@ ${currentPersonality}
         // 玩具类
         ball: {
             name: "小球",
-            emoji: "⚽",
+            emoji: "ball",
             price: 20,
             category: "toy",
             description: "简单的玩具，提升快乐度和纪律",
@@ -9506,7 +9712,7 @@ ${currentPersonality}
         },
         robot_toy: {
             name: "机器人玩具",
-            emoji: "🤖",
+            emoji: "robot",
             price: 60,
             category: "toy",
             description: "高科技玩具，大幅提升纪律和快乐",
@@ -9595,6 +9801,42 @@ ${currentPersonality}
                 savePetData();
                 checkAndSendNotifications();
             }
+        };
+
+        // 添加快乐值衰减诊断函数
+        window.testHappinessDecay = function() {
+            console.log('🩺 测试快乐值衰减功能...');
+
+            const beforeHappiness = petData.happiness;
+            const beforeTime = petData.lastUpdateTime;
+
+            console.log(`测试前快乐值: ${Math.round(beforeHappiness)}`);
+            console.log(`宠物存活状态: ${petData.isAlive ? '✅' : '❌'}`);
+            console.log(`首次互动状态: ${petData.hasInteracted ? '✅' : '❌'}`);
+
+            // 模拟1小时前的时间戳
+            petData.lastUpdateTime = Date.now() - (1 * 60 * 60 * 1000);
+
+            // 调用更新函数
+            window.updatePetStatus();
+
+            const afterHappiness = petData.happiness;
+            const change = afterHappiness - beforeHappiness;
+
+            console.log(`测试后快乐值: ${Math.round(afterHappiness)}`);
+            console.log(`快乐值变化: ${Math.round(change * 100) / 100} (预期: -0.8)`);
+            console.log(`衰减是否正常: ${Math.abs(change + 0.8) < 0.1 ? '✅' : '❌'}`);
+
+            // 恢复原始时间戳
+            petData.lastUpdateTime = beforeTime;
+            petData.happiness = beforeHappiness;
+
+            return {
+                beforeHappiness,
+                afterHappiness,
+                change,
+                isWorking: Math.abs(change + 0.8) < 0.1
+            };
         };
 
         // 重新定义喂食函数 - 拓麻歌子式
@@ -9856,6 +10098,16 @@ ${currentPersonality}
             showShopModal();
         };
 
+        // 添加背包功能
+        window.openBackpack = function() {
+            if (!petData.isAlive) {
+                toastr.error("💀 你的宠物已经死亡，无法使用背包...");
+                return;
+            }
+
+            showBackpackModal();
+        };
+
         console.log('✅ 拓麻歌子式系统已应用！');
     }
 
@@ -9875,7 +10127,7 @@ ${currentPersonality}
                 petData.age = 0; // 重置年龄计数
 
                 const nextStageInfo = LIFE_STAGES[nextStage];
-                toastr.success(`🎉 ${petData.name} 进化了！现在是${nextStageInfo.name}阶段 ${nextStageInfo.emoji}`);
+                toastr.success(`${petData.name} 进化了！现在是${nextStageInfo.name}阶段`);
 
                 // 进化时恢复一些状态
                 petData.health = Math.min(100, petData.health + 20);
@@ -9961,8 +10213,8 @@ ${currentPersonality}
 
             // 显示复活选项
             setTimeout(() => {
-                if (confirm("💀 你的宠物死亡了！\n\n是否要重新开始养育新的宠物？\n（点击确定重新开始，取消保持当前状态）")) {
-                    resetPet();
+                if (confirm("你的宠物死亡了！\n\n是否要重新开始养育新的宠物？\n（点击确定重新开始，取消保持当前状态）")) {
+                    resetPet(true);
                 }
             }, 3000);
         }
@@ -10297,7 +10549,7 @@ ${currentPersonality}
      * 测试不包含AI回复的简化互动
      */
     window.testSimpleInteraction = function() {
-        console.log('🧪 测试简化互动（不包含AI回复）...');
+        console.log('[TEST] 测试简化互动（不包含AI回复）...');
 
         if (!petData.isAlive) {
             console.log('❌ 宠物已死亡，无法测试');
@@ -10449,7 +10701,7 @@ ${currentPersonality}
             renderPetStatus();
             console.log('✅ 状态渲染完成');
 
-            console.log('\n🎉 喂食流程完全执行完毕！');
+            console.log('\n[DONE] 喂食流程完全执行完毕！');
 
         } catch (error) {
             console.error('❌ 执行过程中发生错误:', error);
@@ -10830,8 +11082,8 @@ ${currentPersonality}
             console.log(`- 金币: ${petData.coins} (变化: +${(petData.coins || 0) - beforeCoins})`);
             console.log(`- 经验: ${petData.experience} (变化: +${(petData.experience || 0) - beforeExp})`);
 
-            console.log('\n🔍 函数调用追踪:');
-            console.log(`- gainCoins被调用: ${gainCoinsWasCalled ? '✅' : '❌'}`);
+            console.log('\n[TRACE] 函数调用追踪:');
+            console.log(`- gainCoins被调用: ${gainCoinsWasCalled ? '[OK]' : '[ERR]'}`);
             console.log(`- gainExperience被调用: ${gainExpWasCalled ? '✅' : '❌'}`);
 
             if (gainCoinsWasCalled) {
@@ -11074,114 +11326,7 @@ ${currentPersonality}
         return true;
     };
 
-    /**
-     * 调整衰减速度和缓冲机制
-     */
-    window.adjustDecaySystem = function() {
-        console.log('⚖️ 调整衰减速度和缓冲机制...');
 
-        // 重新定义更平衡的衰减系统
-        window.updatePetStatus = function() {
-            if (!petData.isAlive) return;
-
-            const now = Date.now();
-            const timeSinceLastUpdate = now - (petData.lastUpdateTime || now);
-            const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
-
-            if (hoursElapsed > 0.1) { // 每6分钟更新一次
-
-                // 1. 年龄增长
-                petData.age += hoursElapsed;
-
-                // 2. 生命阶段检查
-                if (typeof checkLifeStageProgression === 'function') {
-                    checkLifeStageProgression();
-                }
-
-                // 3. 更真实的衰减速度 - 让时间流逝更有感知
-                petData.hunger = Math.max(0, petData.hunger - hoursElapsed * 3.5);    // 每小时-3.5 (离线8小时下降28点)
-                petData.energy = Math.max(0, petData.energy - hoursElapsed * 3.0);    // 每小时-3.0 (离线8小时下降24点)
-                petData.happiness = Math.max(0, petData.happiness - hoursElapsed * 2.5); // 每小时-2.5 (离线8小时下降20点)
-
-                // 4. 状态不佳时的惩罚性衰减 - 提高门槛和惩罚力度
-                if (petData.hunger < 25) { // 门槛提高到25，给玩家更多反应时间
-                    petData.health = Math.max(0, petData.health - hoursElapsed * 1.5); // 惩罚加大
-                    petData.happiness = Math.max(0, petData.happiness - hoursElapsed * 1.0);
-                }
-
-                if (petData.energy < 25) { // 门槛提高到25
-                    petData.happiness = Math.max(0, petData.happiness - hoursElapsed * 0.8);
-                }
-
-                // 5. 死亡检查
-                if (typeof checkDeathConditions === 'function') {
-                    checkDeathConditions();
-                }
-
-                petData.lastUpdateTime = now;
-                validateAndFixValues();
-                savePetData();
-            }
-        };
-
-        // 重新定义更宽松的缓冲机制
-        window.applyInitializationBuffer = function() {
-            const now = Date.now();
-            const timeSinceLastUpdate = now - (petData.lastUpdateTime || now);
-            const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
-
-            // 如果距离上次更新超过2小时，给予"急救包"缓冲
-            if (hoursElapsed > 2) {
-                console.log(`检测到长时间未更新 (${hoursElapsed.toFixed(1)}小时)，应用急救缓冲...`);
-
-                // 50上限系统：急救缓冲数值
-                const minValues = {
-                    hunger: 25,    // 50上限系统：急救饱食度25
-                    energy: 20,    // 50上限系统：急救精力20
-                    happiness: 15, // 50上限系统：急救快乐度15
-                    health: 30     // 50上限系统：急救健康度30
-                };
-
-                let buffered = false;
-                Object.entries(minValues).forEach(([key, minValue]) => {
-                    if (petData[key] < minValue) {
-                        console.log(`缓冲 ${key}: ${petData[key]} → ${minValue}`);
-                        petData[key] = minValue;
-                        buffered = true;
-                    }
-                });
-
-                if (buffered) {
-                    petData.lastUpdateTime = now;
-                    savePetData();
-                    toastr.info('🌟 欢迎回来！已为你的宠物提供了基础照顾。', '', { timeOut: 4000 });
-                    console.log('初始化缓冲已应用');
-                }
-            }
-        };
-
-        console.log('✅ 衰减系统已调整为更真实的养成体验');
-        console.log('📊 新的衰减速度 (更有感知的时间流逝):');
-        console.log('  - 饱食度: 每小时 -3.5 (离线8小时下降28点)');
-        console.log('  - 精力: 每小时 -3.0 (离线8小时下降24点)');
-        console.log('  - 快乐度: 每小时 -2.5 (离线8小时下降20点)');
-        console.log('⚠️ 惩罚性衰减 (状态不佳时):');
-        console.log('  - 饥饿门槛: <25 (原来 <15)');
-        console.log('  - 疲劳门槛: <25 (原来 <15)');
-        console.log('  - 惩罚力度: 显著增加');
-        console.log('🛡️ 急救缓冲机制:');
-        console.log('  - 触发时间: 2小时 (更严格)');
-        console.log('  - 最低饱食度: 35 (急救水平)');
-        console.log('  - 最低精力: 30 (急救水平)');
-        console.log('  - 最低快乐度: 25 (急救水平)');
-        console.log('  - 最低健康度: 40 (急救水平)');
-        console.log('💡 设计理念: 鼓励频繁互动，但提供死亡保护');
-
-        // 立即应用缓冲
-        applyInitializationBuffer();
-
-        return true;
-    };
 
     /**
      * 测试新的衰减系统效果
@@ -11302,7 +11447,7 @@ ${currentPersonality}
         }
 
         return {
-            startValues: { health: 35, happiness: 30, hunger: 40, energy: 45 },
+            startValues: { health: 100, happiness: 50, hunger: 40, energy: 50 },
             endValues: {
                 health: petData.health,
                 happiness: petData.happiness,
@@ -11488,8 +11633,8 @@ ${currentPersonality}
                     console.log(`- 快乐: ${petData.happiness} (变化: +${petData.happiness - beforeState.happiness})`);
                     console.log(`- 健康: ${petData.health} (变化: +${petData.health - beforeState.health})`);
 
-                    console.log('\n🔍 奖励函数调用:');
-                    console.log(`- gainCoins被调用: ${coinsGained ? '✅' : '❌'}`);
+                    console.log('\n[TRACE] 奖励函数调用:');
+                    console.log(`- gainCoins被调用: ${coinsGained ? '[OK]' : '[ERR]'}`);
                     console.log(`- gainExperience被调用: ${expGained ? '✅' : '❌'}`);
 
                     // 恢复原始函数
@@ -11583,8 +11728,8 @@ ${currentPersonality}
         const button = $(`#${BUTTON_ID}`);
         if (button.length > 0) {
             const hasCustomImage = button.find('img').length > 0;
-            const hasDefaultEmoji = button.text().includes('🐾');
-            console.log(`悬浮按钮头像: ${hasCustomImage ? '自定义图片' : hasDefaultEmoji ? '默认爪子' : '未知'}`);
+            const hasFeatherIcon = button.find('svg.feather').length > 0;
+            console.log(`悬浮按钮头像: ${hasCustomImage ? '自定义图片' : hasFeatherIcon ? '默认图标' : '未知'}`);
         } else {
             console.log("❌ 悬浮按钮不存在");
         }
@@ -11627,7 +11772,7 @@ ${currentPersonality}
             console.log("    - 无背景框架，元素融入背景");
             console.log("    - 实时数值更新，状态条动画");
             console.log("  ⚖️ 数值平衡:");
-            console.log("    - 初始数值：健康40, 快乐30, 饱食50, 精力60");
+            console.log("    - 初始数值：健康100, 快乐50, 饱食40, 精力50");
             console.log("    - 时间衰减：每12分钟更新，速度减缓");
             console.log("    - 操作冷却：喂食20s, 玩耍40s, 睡觉80s");
         }
@@ -11879,45 +12024,6 @@ ${currentPersonality}
         });
     };
 
-    // 创建一个测试按钮来调试弹窗
-    window.createTestPopupButton = function() {
-        // 移除现有的测试按钮
-        $("#test-popup-button").remove();
-
-        // 创建测试按钮
-        const testButton = $(`
-            <button id="test-popup-button" style="
-                position: fixed;
-                top: 10px;
-                right: 10px;
-                z-index: ${SAFE_Z_INDEX.popup};
-                background: #7289da;
-                color: white;
-                border: none;
-                padding: 10px 15px;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 14px;
-            ">测试弹窗</button>
-        `);
-
-        $("body").append(testButton);
-
-        testButton.on("click touchend", function(e) {
-            e.preventDefault();
-            console.log("测试按钮被点击");
-            try {
-                showPopup();
-                console.log("showPopup 调用成功");
-            } catch (error) {
-                console.error("showPopup 调用失败:", error);
-                alert("弹窗测试失败: " + error.message);
-            }
-        });
-
-        console.log("测试按钮已创建，位于屏幕右上角");
-        return true;
-    };
 
     // iOS专用弹窗显示函数
     window.showIOSPopup = function() {
@@ -11987,28 +12093,6 @@ ${currentPersonality}
         return true;
     };
 
-    // 测试统一UI的函数
-    window.testUnifiedUI = function() {
-        console.log("🎨 测试统一UI...");
-
-        // 清理现有弹窗
-        window.clearAllPopups();
-
-        // 检测设备类型
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        const isAndroid = /Android/.test(navigator.userAgent);
-        const isMobile = isIOS || isAndroid;
-
-        console.log(`设备检测: iOS=${isIOS}, Android=${isAndroid}, Mobile=${isMobile}`);
-
-        // 延迟显示弹窗
-        setTimeout(() => {
-            console.log("显示统一UI");
-            showPopup();
-        }, 100);
-
-        return true;
-    };
 
     // 移动端尺寸测试函数
     window.testMobileSize = function() {
@@ -12159,42 +12243,47 @@ ${currentPersonality}
                 ">
                     <!-- 拓麻歌子风格头像框 -->
                     <div class="pet-avatar-circle" style="
-                        width: 70px !important;
-                        height: 70px !important;
-                        border-radius: 6px !important;
+                        width: 80px !important;
+                        height: 80px !important;
+                        border-radius: 50% !important;
                         background: ${candyColors.screen} !important;
                         display: flex !important;
                         align-items: center !important;
                         justify-content: center !important;
-                        font-size: 2.5em !important;
+                        font-size: 2.8em !important;
                         overflow: hidden !important;
-                        border: 3px solid ${candyColors.border} !important;
-                        box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
+                        border: 4px solid ${(petData.health > 80 && petData.happiness > 80) ? candyColors.gold : candyColors.border} !important;
+                        box-shadow: ${(petData.health > 80 && petData.happiness > 80) ?
+                            `0 0 20px ${candyColors.shadowGlow}, 0 0 40px ${candyColors.shadowGlow}` :
+                            `0 4px 12px ${candyColors.shadow}`} !important;
                         cursor: pointer !important;
-                        margin: 0 auto 8px auto !important;
-                        font-family: 'Courier New', monospace !important;
-                        image-rendering: pixelated !important;
-                        image-rendering: -moz-crisp-edges !important;
-                        image-rendering: crisp-edges !important;
+                        margin: 0 auto 12px auto !important;
+                        font-family: ${candyColors.fontFamily} !important;
+                        transition: all 0.3s ease !important;
+                        ${(petData.health > 80 && petData.happiness > 80) ?
+                            'animation: petGlow 2s ease-in-out infinite alternate !important;' : ''}
                     " onclick="openAvatarSelector()" oncontextmenu="showAvatarContextMenu(event)" title="点击更换头像，右键重置">
-                        ${getAvatarContent()}
+                        ${customAvatarData ? getAvatarContent() : getDefaultPetIcon(56, '#ffd700')}
                     </div>
-                    <div class="pet-name" style="font-size: 1.2em !important; font-weight: bold !important; margin-bottom: 3px !important;">${escapeHtml(petData.name)}</div>
-                    <div class="pet-level" style="color: #7289da !important; font-size: 0.9em !important;">${petData.isAlive ?
-                        `${LIFE_STAGES[petData.lifeStage]?.emoji || '🐾'} ${LIFE_STAGES[petData.lifeStage]?.name || '未知'} Lv.${petData.level}` :
-                        '💀 已死亡'
-                    }</div>
+                    <div class="pet-title-wrap" style="width: 100% !important; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important;">
+                        <div class="pet-name" style="font-size: 1.2em !important; font-weight: bold !important; margin-bottom: 3px !important; color: ${candyColors.textPrimary} !important;">${escapeHtml(petData.name)}</div>
+                        <div class="pet-level" style="color: ${candyColors.textSecondary} !important; font-size: 1em !important; width: 100% !important; text-align: center !important; font-weight: normal !important;">
+                            ${petData.isAlive ? `${LIFE_STAGES[petData.lifeStage]?.name || '未知'} Lv.${petData.level}` : `已死亡`}
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 宠物状态栏 -->
                 <div class="pet-status-section" style="
                     padding: 10px !important;
                 ">
-                    <h4 style="margin: 0 0 10px 0 !important; color: ${candyColors.primary} !important; font-size: 0.9em !important;">📊 状态</h4>
+                    <h4 style="margin: 0 0 10px 0 !important; color: ${candyColors.primary} !important; font-size: 0.9em !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: 6px !important; text-align: center !important;">
+                        ${getFeatherIcon('activity', { color: candyColors.primary, size: 14 })} 状态
+                    </h4>
                     <div class="status-bars" style="display: flex !important; flex-direction: column !important; gap: 6px !important;">
                         <div class="status-item">
                             <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 3px !important;">
-                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.8em !important;">❤️ 健康</span>
+                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.8em !important; display: flex !important; align-items: center !important; gap: 6px !important;">${getFeatherIcon('heart', { color: candyColors.health, size: 16 })} 健康</span>
                                 <span style="color: ${candyColors.health} !important; font-size: 0.8em !important;">${Math.round(petData.health)}/100</span>
                             </div>
                             <div style="background: ${candyColors.border} !important; height: 5px !important; border-radius: 3px !important; overflow: hidden !important;">
@@ -12203,7 +12292,7 @@ ${currentPersonality}
                         </div>
                         <div class="status-item">
                             <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 3px !important;">
-                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.8em !important;">🍖 饱食度</span>
+                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.8em !important; display: flex !important; align-items: center !important; gap: 6px !important;">${getFeatherIcon('coffee', { color: candyColors.hunger, size: 16 })} 饱食度</span>
                                 <span style="color: ${candyColors.hunger} !important; font-size: 0.8em !important;">${Math.round(petData.hunger)}/100</span>
                             </div>
                             <div style="background: ${candyColors.border} !important; height: 5px !important; border-radius: 3px !important; overflow: hidden !important;">
@@ -12212,7 +12301,7 @@ ${currentPersonality}
                         </div>
                         <div class="status-item">
                             <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 3px !important;">
-                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.8em !important;">😊 快乐度</span>
+                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.8em !important; display: flex !important; align-items: center !important; gap: 6px !important;">${getFeatherIcon('smile', { color: candyColors.happiness, size: 16 })} 快乐度</span>
                                 <span style="color: ${candyColors.happiness} !important; font-size: 0.8em !important;">${Math.round(petData.happiness)}/100</span>
                             </div>
                             <div style="background: ${candyColors.border} !important; height: 5px !important; border-radius: 3px !important; overflow: hidden !important;">
@@ -12221,7 +12310,7 @@ ${currentPersonality}
                         </div>
                         <div class="status-item">
                             <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 3px !important;">
-                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.8em !important;">⚡ 精力</span>
+                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.8em !important; display: flex !important; align-items: center !important; gap: 6px !important;">${getFeatherIcon('zap', { color: candyColors.energy, size: 16 })} 精力</span>
                                 <span style="color: ${candyColors.energy} !important; font-size: 0.8em !important;">${Math.round(petData.energy)}/100</span>
                             </div>
                             <div style="background: ${candyColors.border} !important; height: 5px !important; border-radius: 3px !important; overflow: hidden !important;">
@@ -12234,14 +12323,17 @@ ${currentPersonality}
                 <!-- 金币显示 -->
                 ${petData.dataVersion >= 4.0 ? `
                 <div class="pet-coins-section" style="
-                    text-align: center !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
                     padding: 8px !important;
                     background: rgba(255,215,0,0.1) !important;
                     border-radius: 6px !important;
                     margin-bottom: 8px !important;
+                    text-align: center !important;
                 ">
-                    <span style="color: #ffd700 !important; font-weight: bold !important; font-size: 1em !important;">
-                        💰 ${petData.coins || 100} 金币
+                    <span style="color: #ffd700 !important; font-weight: bold !important; font-size: 1em !important; display: inline-flex !important; align-items: center !important; gap: 6px !important;">
+                        ${getFeatherIcon('star', { color: '#ffd700', size: 16 })} ${petData.coins || 100} 金币
                     </span>
                 </div>
                 ` : ''}
@@ -12253,25 +12345,26 @@ ${currentPersonality}
                     gap: 6px !important;
                 ">
                     <button class="action-btn feed-btn" style="
-                        padding: 8px !important;
+                        padding: 12px 16px !important;
                         background: ${candyColors.buttonPrimary} !important;
-                        color: ${candyColors.textPrimary} !important;
-                        border: 2px solid ${candyColors.border} !important;
-                        border-radius: 0 !important;
-                        font-family: 'Courier New', monospace !important;
-                        font-size: 11px !important;
-                        font-weight: bold !important;
-                        text-transform: uppercase !important;
+                        color: ${candyColors.textWhite} !important;
+                        border: none !important;
+                        border-radius: 20px !important;
+                        font-family: ${candyColors.fontFamily} !important;
+                        font-size: 12px !important;
+                        font-weight: 600 !important;
+                        text-transform: none !important;
                         cursor: pointer !important;
-                        min-height: 36px !important;
+                        min-height: 40px !important;
                         display: flex !important;
                         align-items: center !important;
                         justify-content: center !important;
-                        gap: 4px !important;
-                        box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
-                        transition: none !important;
-                    ">
-                        <span style="font-size: 1em !important;">🍖</span>
+                        gap: 6px !important;
+                        box-shadow: 0 4px 12px ${candyColors.shadow}, 0 2px 4px rgba(0,0,0,0.1) !important;
+                        transition: all 0.2s ease !important;
+                        transform: translateY(0) !important;
+                    " onmousedown="this.style.transform='translateY(2px)'; this.style.boxShadow='0 2px 6px ${candyColors.shadow}'" onmouseup="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px ${candyColors.shadow}, 0 2px 4px rgba(0,0,0,0.1)'" onmouseleave="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px ${candyColors.shadow}, 0 2px 4px rgba(0,0,0,0.1)'"">
+                        ${getFeatherIcon('utensils', { color: 'currentColor', size: 18 })}
                         <span>喂食</span>
                     </button>
                     <button class="action-btn play-btn" style="
@@ -12293,7 +12386,7 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1em !important;">🎮</span>
+                        ${getFeatherIcon('gamepad-2', { color: 'currentColor', size: 18 })}
                         <span>玩耍</span>
                     </button>
                     <button class="action-btn sleep-btn" style="
@@ -12315,7 +12408,7 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1em !important;">😴</span>
+                        ${getFeatherIcon('moon', { color: 'currentColor', size: 18 })}
                         <span>休息</span>
                     </button>
                     <button class="action-btn hug-btn" style="
@@ -12337,8 +12430,30 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1em !important;">🤗</span>
+                        ${getFeatherIcon('heart', { color: 'currentColor', size: 18 })}
                         <span>抱抱</span>
+                    </button>
+                    <button class="action-btn backpack-btn" style="
+                        padding: 8px !important;
+                        background: #8B4513 !important;
+                        color: ${candyColors.textWhite} !important;
+                        border: 2px solid ${candyColors.border} !important;
+                        border-radius: 0 !important;
+                        font-family: 'Courier New', monospace !important;
+                        font-size: 11px !important;
+                        font-weight: bold !important;
+                        text-transform: none !important;
+                        cursor: pointer !important;
+                        min-height: 36px !important;
+                        display: flex !important;
+                        align-items: center !important;
+                        justify-content: center !important;
+                        gap: 4px !important;
+                        box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
+                        transition: none !important;
+                    ">
+                        ${getFeatherIcon('package', { color: 'currentColor', size: 18 })}
+                        <span>背包</span>
                     </button>
                     <button class="action-btn heal-btn" style="
                         padding: 8px !important;
@@ -12360,7 +12475,7 @@ ${currentPersonality}
                         transition: none !important;
                         opacity: ${(petData.sickness || 0) > 10 ? '1' : '0.5'} !important;
                     ">
-                        <span style="font-size: 1em !important;">💊</span>
+                        ${getFeatherIcon('shield', { color: 'currentColor', size: 18 })}
                         <span>治疗</span>
                     </button>
                     <button class="action-btn shop-btn" style="
@@ -12382,7 +12497,7 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1em !important;">🛒</span>
+                        ${getFeatherIcon('shopping-bag', { color: 'currentColor', size: 18 })}
                         <span>商店</span>
                     </button>
                     <button class="action-btn chat-btn" style="
@@ -12404,7 +12519,7 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1em !important;">💬</span>
+                        ${getFeatherIcon('message-circle', { color: 'currentColor', size: 18 })}
                         <span>聊天</span>
                     </button>
                     <button class="action-btn settings-btn" style="
@@ -12426,7 +12541,7 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1em !important;">⚙️</span>
+                        ${getFeatherIcon('settings', { color: 'currentColor', size: 18 })}
                         <span>设置</span>
                     </button>
                 </div>
@@ -12455,7 +12570,7 @@ ${currentPersonality}
                     color: ${candyColors.textLight} !important;
                     font-size: 0.7em !important;
                 ">
-                    <p style="margin: 0 !important;">🎉 虚拟宠物系统 v1.0</p>
+                    <p style="margin: 0 !important; display: flex !important; align-items: center !important; gap: 6px !important;">${getFeatherIcon('heart', { color: 'currentColor', size: 14 })} 虚拟宠物系统 v1.0</p>
                     <p style="margin: 2px 0 0 0 !important;">上次互动: 刚刚</p>
                 </div>
             </div>
@@ -12476,7 +12591,10 @@ ${currentPersonality}
             ">
                 <!-- 宠物头像和基本信息 -->
                 <div class="pet-avatar-section" style="
-                    text-align: center !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                    justify-content: center !important;
                     padding: 20px !important;
                 ">
                     <!-- 圆形头像框 -->
@@ -12496,24 +12614,27 @@ ${currentPersonality}
                         margin: 0 auto 10px auto !important;
                         transition: transform 0.2s ease !important;
                     " onclick="openAvatarSelector()" oncontextmenu="showAvatarContextMenu(event)" title="点击更换头像，右键重置">
-                        ${getAvatarContent()}
+                        ${customAvatarData ? getAvatarContent() : getDefaultPetIcon(64, '#ffd700')}
                     </div>
-                    <div class="pet-name" style="font-size: 1.3em !important; font-weight: bold !important; margin-bottom: 4px !important; color: ${candyColors.textPrimary} !important; cursor: pointer !important; text-decoration: underline !important;" onclick="editPetName()" title="点击编辑宠物名字">${escapeHtml(petData.name)}</div>
-                    <div class="pet-level" style="color: ${candyColors.primary} !important; font-size: 1em !important;">${petData.isAlive ?
-                        `${LIFE_STAGES[petData.lifeStage]?.emoji || '🐾'} ${LIFE_STAGES[petData.lifeStage]?.name || '未知'} Lv.${petData.level}` :
-                        '💀 已死亡'
-                    }</div>
+                    <div class="pet-title-wrap" style="width: 100% !important; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important;">
+                        <div class="pet-name" style="font-size: 1.3em !important; font-weight: bold !important; margin-bottom: 4px !important; color: ${candyColors.textPrimary} !important; cursor: pointer !important; text-decoration: underline !important;" onclick="editPetName()" title="点击编辑宠物名字">${escapeHtml(petData.name)}</div>
+                        <div class="pet-level" style="color: ${candyColors.textSecondary} !important; font-size: 1em !important; width: 100% !important; text-align: center !important; font-weight: normal !important;">
+                            ${petData.isAlive ? `${LIFE_STAGES[petData.lifeStage]?.name || '未知'} Lv.${petData.level}` : `已死亡`}
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 宠物状态栏 -->
                 <div class="pet-status-section" style="
                     padding: 12px !important;
                 ">
-                    <h4 style="margin: 0 0 12px 0 !important; color: ${candyColors.primary} !important; font-size: 1em !important;">📊 状态</h4>
+                    <h4 style="margin: 0 0 12px 0 !important; color: ${candyColors.primary} !important; font-size: 1em !important; display: flex !important; align-items: center !important; justify-content: center !important; gap: 6px !important; text-align: center !important;">
+                        ${getFeatherIcon('activity', { color: candyColors.primary, size: 16 })} 状态
+                    </h4>
                     <div class="status-bars" style="display: flex !important; flex-direction: column !important; gap: 8px !important;">
                         <div class="status-item">
                             <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 4px !important;">
-                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.9em !important;">❤️ 健康</span>
+                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.9em !important; display: flex !important; align-items: center !important; gap: 8px !important;">${getFeatherIcon('heart', { color: candyColors.health, size: 18 })} 健康</span>
                                 <span style="color: ${candyColors.health} !important; font-size: 0.9em !important;">${Math.round(petData.health)}/100</span>
                             </div>
                             <div style="background: ${candyColors.border} !important; height: 6px !important; border-radius: 3px !important; overflow: hidden !important;">
@@ -12522,7 +12643,7 @@ ${currentPersonality}
                         </div>
                         <div class="status-item">
                             <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 4px !important;">
-                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.9em !important;">🍖 饱食度</span>
+                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.9em !important; display: flex !important; align-items: center !important; gap: 8px !important;">${getFeatherIcon('coffee', { color: candyColors.hunger, size: 18 })} 饱食度</span>
                                 <span style="color: ${candyColors.hunger} !important; font-size: 0.9em !important;">${Math.round(petData.hunger)}/100</span>
                             </div>
                             <div style="background: ${candyColors.border} !important; height: 6px !important; border-radius: 3px !important; overflow: hidden !important;">
@@ -12531,7 +12652,7 @@ ${currentPersonality}
                         </div>
                         <div class="status-item">
                             <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 4px !important;">
-                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.9em !important;">😊 快乐度</span>
+                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.9em !important; display: flex !important; align-items: center !important; gap: 8px !important;">${getFeatherIcon('smile', { color: candyColors.happiness, size: 18 })} 快乐度</span>
                                 <span style="color: ${candyColors.happiness} !important; font-size: 0.9em !important;">${Math.round(petData.happiness)}/100</span>
                             </div>
                             <div style="background: ${candyColors.border} !important; height: 6px !important; border-radius: 3px !important; overflow: hidden !important;">
@@ -12540,7 +12661,7 @@ ${currentPersonality}
                         </div>
                         <div class="status-item">
                             <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 4px !important;">
-                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.9em !important;">⚡ 精力</span>
+                                <span style="color: ${candyColors.textSecondary} !important; font-size: 0.9em !important; display: flex !important; align-items: center !important; gap: 8px !important;">${getFeatherIcon('zap', { color: candyColors.energy, size: 18 })} 精力</span>
                                 <span style="color: ${candyColors.energy} !important; font-size: 0.9em !important;">${Math.round(petData.energy)}/100</span>
                             </div>
                             <div style="background: ${candyColors.border} !important; height: 6px !important; border-radius: 3px !important; overflow: hidden !important;">
@@ -12553,14 +12674,17 @@ ${currentPersonality}
                 <!-- 金币显示 -->
                 ${petData.dataVersion >= 4.0 ? `
                 <div class="pet-coins-section" style="
-                    text-align: center !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
                     padding: 10px !important;
                     background: rgba(255,215,0,0.1) !important;
                     border-radius: 8px !important;
                     margin-bottom: 10px !important;
+                    text-align: center !important;
                 ">
-                    <span style="color: #ffd700 !important; font-weight: bold !important; font-size: 1.1em !important;">
-                        💰 ${petData.coins || 100} 金币
+                    <span style="color: #ffd700 !important; font-weight: bold !important; font-size: 1.1em !important; display: inline-flex !important; align-items: center !important; gap: 6px !important;">
+                        ${getFeatherIcon('star', { color: '#ffd700', size: 18 })} ${petData.coins || 100} 金币
                     </span>
                 </div>
                 ` : ''}
@@ -12590,7 +12714,7 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1.1em !important;">🍖</span>
+                        ${getFeatherIcon('utensils', { color: 'currentColor', size: 20 })}
                         <span>喂食</span>
                     </button>
                     <button class="action-btn play-btn" style="
@@ -12612,7 +12736,7 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1.1em !important;">🎮</span>
+                        ${getFeatherIcon('gamepad-2', { color: 'currentColor', size: 20 })}
                         <span>玩耍</span>
                     </button>
                     <button class="action-btn sleep-btn" style="
@@ -12634,7 +12758,7 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1.1em !important;">😴</span>
+                        ${getFeatherIcon('moon', { color: 'currentColor', size: 20 })}
                         <span>休息</span>
                     </button>
                     <button class="action-btn hug-btn" style="
@@ -12656,8 +12780,30 @@ ${currentPersonality}
                         box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
                         transition: none !important;
                     ">
-                        <span style="font-size: 1.1em !important;">🤗</span>
+                        ${getFeatherIcon('heart', { color: 'currentColor', size: 20 })}
                         <span>抱抱</span>
+                    </button>
+                    <button class="action-btn backpack-btn" style="
+                        padding: 12px !important;
+                        background: #8B4513 !important;
+                        color: ${candyColors.textWhite} !important;
+                        border: 2px solid ${candyColors.border} !important;
+                        border-radius: 0 !important;
+                        font-family: 'Courier New', monospace !important;
+                        font-size: 12px !important;
+                        font-weight: bold !important;
+                        text-transform: none !important;
+                        cursor: pointer !important;
+                        min-height: 44px !important;
+                        display: flex !important;
+                        align-items: center !important;
+                        justify-content: center !important;
+                        gap: 6px !important;
+                        box-shadow: 2px 2px 0px ${candyColors.shadow} !important;
+                        transition: none !important;
+                    ">
+                        ${getFeatherIcon('package', { color: 'currentColor', size: 20 })}
+                        <span>背包</span>
                     </button>
                     <button class="action-btn heal-btn" style="
                         padding: 12px !important;
@@ -12724,6 +12870,8 @@ ${currentPersonality}
                         transition: none !important;
                     ">
                         <span style="font-size: 1.1em !important;">💬</span>
+
+
                         <span>聊天</span>
                     </button>
                     <button class="action-btn settings-btn" style="
@@ -12752,6 +12900,9 @@ ${currentPersonality}
 
                 <!-- 聊天视图 (隐藏) -->
                 <div id="pet-chat-view" class="pet-view" style="display: none;">
+
+
+
                     <div class="pet-section">
                         <h3>💬 与 <span id="chat-pet-name"></span> 聊天</h3>
                         <div id="chat-messages-container" class="chat-messages-container">
@@ -12774,12 +12925,89 @@ ${currentPersonality}
                     color: ${candyColors.textLight} !important;
                     font-size: 0.8em !important;
                 ">
-                    <p style="margin: 0 !important;">🎉 虚拟宠物系统 v1.0</p>
+                    <p style="margin: 0 !important; display: flex !important; align-items: center !important; gap: 6px !important;">${getFeatherIcon('heart', { color: 'currentColor', size: 14 })} 虚拟宠物系统 v1.0</p>
                     <p style="margin: 3px 0 0 0 !important;">上次互动: 刚刚</p>
                 </div>
             </div>
         `;
     }
+
+    // 学习商店按钮的模式：设置按钮二级菜单（轻量浮层，不遮罩）
+    function showSettingsSubmenu(anchorEl){
+        try { $('#vp-settings-submenu').remove(); } catch{}
+        const rect = anchorEl.getBoundingClientRect();
+        const isMobile = window.innerWidth <= 767;
+        const $menu = $('<div/>', { id: 'vp-settings-submenu' }).css({
+            position: 'fixed', zIndex: SAFE_Z_INDEX.button + 2,
+            top: Math.round(rect.bottom + 8), left: Math.round(rect.left),
+            background: 'rgba(17,20,36,0.95)', color: '#fff',
+            border: '1px solid rgba(164,0,255,.30)', borderRadius: 10,
+            boxShadow: '0 8px 24px rgba(0,0,0,.35), 0 0 18px rgba(0,240,255,.25)',
+            backdropFilter: 'blur(6px)', padding: 8, minWidth: isMobile ? 180 : 220
+        });
+        function addItem(action, icon, text, color){
+            const $item = $('<div/>')
+                .addClass('vp-submenu-item')
+                .attr('data-action', action)
+                .css({ padding:'8px 10px', borderRadius:8, cursor:'pointer', display:'flex', gap:8, alignItems:'center' })
+                .append($(getFeatherIcon(icon, { color: color||'#ffd700', size: 16 })))
+                .append($('<span/>').text(text));
+            $menu.append($item);
+        }
+        addItem('reset','refresh-cw','一键重置');
+        addItem('clear-chat','trash-2','清空聊天历史');
+        addItem('new-chat','plus','新建会话');
+        $menu.append($('<div/>').css({ height:1, background:'rgba(255,255,255,0.12)', margin:'6px 4px' }));
+        addItem('open-settings','settings','打开完整设置','#90cdf4');
+        $('body').append($menu);
+        // 智能定位：避免超出屏幕
+        const vw = window.innerWidth, vh = window.innerHeight;
+        let menuW = $menu.outerWidth(), menuH = $menu.outerHeight();
+        const pad = 8;
+        // 计算垂直位置：优先放在下方，放不下则放上方，再进行夹取
+        let top = Math.round(rect.bottom + 8);
+        const canPlaceAbove = (rect.top - 8 - menuH) >= pad;
+        if (top + menuH > vh - pad && canPlaceAbove) {
+            top = Math.max(pad, Math.round(rect.top - menuH - 8));
+        } else {
+            top = Math.min(top, vh - pad - menuH);
+        }
+        // 计算水平位置，并在过宽时自适应宽度
+        if (menuW > vw - pad * 2) {
+            $menu.css({ width: vw - pad * 2 });
+            menuW = $menu.outerWidth();
+        }
+        let left = Math.round(rect.left);
+        left = Math.max(pad, Math.min(left, vw - pad - menuW));
+        // 应用最终位置与高度限制
+        $menu.css({ top, left, maxHeight: Math.min(vh - pad * 2, isMobile ? 360 : 480), overflowY: 'auto' });
+        $(document)
+          .off('mouseenter.vp-submenu mouseleave.vp-submenu', '#vp-settings-submenu .vp-submenu-item')
+          .on('mouseenter.vp-submenu', '#vp-settings-submenu .vp-submenu-item', function(){ $(this).css({ background: 'rgba(255,255,255,0.08)' }); })
+          .on('mouseleave.vp-submenu', '#vp-settings-submenu .vp-submenu-item', function(){ $(this).css({ background: 'transparent' }); });
+        $(document).off('click.vp-submenu', '#vp-settings-submenu .vp-submenu-item')
+          .on('click.vp-submenu', '#vp-settings-submenu .vp-submenu-item', async function(e){
+            e.preventDefault(); e.stopPropagation();
+            const action = $(this).data('action');
+            try{
+                if (action === 'reset') {
+                    if (confirm('确定要一键重置宠物数据吗？这将清除当前数值并恢复到初始状态。')) { resetPet(true); toastr.success('已重置为初始状态'); }
+                } else if (action === 'clear-chat') {
+                    if (!confirm('确定要清空当前会话的聊天历史吗？此操作不可恢复。')) return;
+                    await clearCurrentChatHistory(); toastr.success('已清空当前会话聊天历史');
+                } else if (action === 'new-chat') {
+                    await createNewChatSession(); toastr.success('已创建新会话');
+                } else if (action === 'open-settings') { openSettings(); }
+            } finally { $('#vp-settings-submenu').remove(); }
+          });
+        setTimeout(()=>{
+            $(document).off('click.vp-submenu-dismiss').on('click.vp-submenu-dismiss', function(){
+                $('#vp-settings-submenu').remove();
+                $(document).off('click.vp-submenu-dismiss');
+            });
+        }, 0);
+    }
+
 
     // 绑定统一UI的事件
     function bindUnifiedUIEvents($container) {
@@ -12829,6 +13057,13 @@ ${currentPersonality}
             }, 100);
         });
 
+        // 背包按钮
+        $container.find(".backpack-btn").on("click touchend", function(e) {
+            e.preventDefault();
+            console.log("🎒 打开背包");
+            openBackpack();
+        });
+
         // 治疗按钮
         $container.find(".heal-btn").on("click touchend", function(e) {
             e.preventDefault();
@@ -12876,8 +13111,9 @@ ${currentPersonality}
         // 设置按钮
         $container.find(".settings-btn").on("click touchend", function(e) {
             e.preventDefault();
-            console.log("⚙️ 打开设置");
-            openSettings();
+            e.stopPropagation();
+            console.log("⚙️ 打开设置二级菜单");
+            try { showSettingsSubmenu(this); } catch(err) { console.warn('submenu failed, fallback openSettings', err); openSettings(); }
         });
 
         // 宠物名字点击事件（备用，主要通过onclick属性）
@@ -12942,118 +13178,7 @@ ${currentPersonality}
         }, 3000);
     }
 
-    // iOS测试按钮 - 可以在iOS上直接点击测试
-    window.createIOSTestButton = function() {
-        // 移除现有测试按钮
-        $("#ios-test-button").remove();
 
-        // 创建iOS测试按钮
-        const testButton = $(`
-            <button id="ios-test-button" style="
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                z-index: ${SAFE_Z_INDEX.popup};
-                background: #43b581;
-                color: white;
-                border: none;
-                padding: 15px 20px;
-                border-radius: 25px;
-                cursor: pointer;
-                font-size: 16px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                min-width: 120px;
-                min-height: 50px;
-            ">🍎 iOS测试</button>
-        `);
-
-        $("body").append(testButton);
-
-        testButton.on("click touchend", function(e) {
-            e.preventDefault();
-            console.log("iOS测试按钮被点击");
-
-            // 先清理所有弹窗
-            window.clearAllPopups();
-
-            // 延迟显示统一弹窗
-            setTimeout(() => {
-                try {
-                    showPopup();
-                } catch (error) {
-                    console.error("弹窗测试失败:", error);
-                    alert("弹窗测试失败: " + error.message);
-                }
-            }, 100);
-        });
-
-        console.log("iOS测试按钮已创建，位于屏幕右下角");
-
-        // 5秒后自动移除测试按钮
-        setTimeout(() => {
-            $("#ios-test-button").fadeOut(500, function() {
-                $(this).remove();
-            });
-        }, 10000);
-
-        return true;
-    };
-
-    // 测试统一UI的函数
-    window.testUnifiedUIForAllPlatforms = function() {
-        console.log("🎨 测试所有平台的统一UI...");
-
-        // 获取设备信息
-        const windowWidth = $(window).width();
-        const windowHeight = $(window).height();
-        const userAgent = navigator.userAgent;
-        const isIOS = /iPad|iPhone|iPod/.test(userAgent);
-        const isAndroid = /Android/.test(userAgent);
-        const isMobile = windowWidth <= 767 || isIOS || isAndroid;
-
-        console.log("=== 设备信息 ===");
-        console.log("窗口尺寸:", windowWidth + "x" + windowHeight);
-        console.log("User Agent:", userAgent);
-        console.log("iOS:", isIOS);
-        console.log("Android:", isAndroid);
-        console.log("Mobile:", isMobile);
-
-        // 清理现有弹窗
-        window.clearAllPopups();
-
-        // 显示统一UI
-        setTimeout(() => {
-            console.log("🎨 显示统一UI（所有平台相同）");
-            showPopup();
-
-            // 检查UI内容
-            setTimeout(() => {
-                const popup = $("#virtual-pet-popup");
-                const header = popup.find(".pet-popup-header h2");
-                const avatar = popup.find(".pet-avatar");
-                const buttons = popup.find(".action-btn");
-
-                console.log("=== UI检查结果 ===");
-                console.log("弹窗存在:", popup.length > 0);
-                console.log("标题内容:", header.text());
-                console.log("头像内容:", avatar.text());
-                console.log("按钮数量:", buttons.length);
-                console.log("按钮文字:", buttons.map((i, btn) => $(btn).text().trim()).get());
-
-                if (popup.length > 0 && buttons.length === 4) {
-                    console.log("✅ 统一UI测试成功！所有平台显示相同内容");
-                } else {
-                    console.log("❌ 统一UI测试失败！内容不一致");
-                }
-            }, 500);
-        }, 200);
-
-        return {
-            windowSize: { width: windowWidth, height: windowHeight },
-            device: { isIOS, isAndroid, isMobile },
-            userAgent
-        };
-    };
 
     // iOS关闭测试函数
     window.testIOSClose = function() {
@@ -14542,7 +14667,7 @@ ${currentPersonality}
                             toastr.info('API URL已自动更新');
                         }
                     } else {
-                        toastr.success('📱 移动端API连接测试成功!');
+                        toastr.success('移动端API连接测试成功!');
                     }
 
                     return true;
@@ -14585,7 +14710,7 @@ ${currentPersonality}
 
         // 所有URL都失败
         console.log('\n❌ 所有URL测试都失败了');
-        toastr.error('📱 移动端API连接失败，请检查配置', '连接失败', { timeOut: 5000 });
+        toastr.error('移动端API连接失败，请检查配置', '连接失败', { timeOut: 5000 });
 
         // 提供详细的故障排除建议
         console.log('\n🔧 移动端API 404故障排除建议:');
@@ -14598,23 +14723,7 @@ ${currentPersonality}
         return false;
     };
 
-    console.log("🐾 虚拟宠物系统加载完成！");
-    console.log("🐾 如果没有看到按钮，请在控制台运行: testVirtualPet()");
-    console.log("🎉 AI人设功能已加载！可用测试命令:");
-    console.log("  - testVirtualPetAI() - 检查AI功能状态");
-    console.log("  - testAIReply('feed'|'play'|'sleep') - 手动测试AI回复");
-    console.log("  - testPersonalitySwitch('default'|'cheerful'|'elegant'|'shy'|'smart'|'custom') - 测试人设切换");
-    console.log("📱 移动端专用命令:");
-    console.log("  - diagnoseMobileAPI() - 移动端API诊断");
-    console.log("  - testMobileAPIConnection() - 测试移动端API连接");
-    console.log("  - testURLBuilder('your-url') - 测试URL自动构建功能");
-    console.log("🤖 第三方API专用命令:");
-    console.log("  - testGeminiAPI() - 测试Gemini API连接和格式");
-    console.log("  - testThirdPartyAPI() - 测试当前配置的第三方API");
-    console.log("  - debugAPICall() - 调试API调用流程");
-    console.log("  - debugAPIResponse() - 调试API响应解析");
-    console.log("  - quickFixAPI() - 快速修复API响应解析问题");
-    console.log("  - testSimpleRequest() - 测试简化的请求格式");
+    console.log("[VirtualPet] 虚拟宠物系统加载完成！");
 
     /**
      * 测试URL自动构建功能
@@ -15469,6 +15578,6 @@ ${currentPersonality}
         toastr.info('随机化标记已重置', '', { timeOut: 2000 });
     };
 
-    console.log("🐾 虚拟宠物系统脚本已加载完成");
+    console.log("[VirtualPet] 虚拟宠物系统脚本已加载完成");
     console.log("🎲 智能初始化系统：首次打开随机化到50以下，后续自然衰减到100");
-});
+}); // jQuery ready end
