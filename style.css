@@ -56,7 +56,7 @@
 /* --- 糖果色浮动按钮 --- */
 #virtual-pet-button {
     position: fixed !important;
-    z-index: 2147483647 !important;
+    z-index: 10000 !important; /* 与 SAFE_Z_INDEX.button 对齐 */
     cursor: grab !important;
     width: 48px !important;
     height: 48px !important;

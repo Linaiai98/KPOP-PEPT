@@ -417,7 +417,6 @@ jQuery(async () => {
 
     // 添加 Candy Pop 2.0 动画样式（在 candyColors 定义之后）
     const candyPopAnimations = `
-        <style>
             @keyframes petGlow {
                 0% {
                     box-shadow: 0 0 20px ${candyColors.shadowGlow},
@@ -441,7 +440,6 @@ jQuery(async () => {
                 0%, 100% { opacity: 1 !important; }
                 50% { opacity: 0.8 !important; }
             }
-        </style>
     `;
 
     // 注入动画样式到页面
@@ -705,6 +703,8 @@ jQuery(async () => {
                     }
                 });
                 obs.observe(document.body, { childList: true, subtree: true });
+                // 保存以便卸载时断开
+                window.__virtualPetDomObserver = obs;
             } catch (e) { /* ignore */ }
         })();
 
@@ -8771,6 +8771,14 @@ async function createNewChatSession(){
         `);
 
         $('body').append(shopModal);
+        // 事件代理：购买按钮（兼容 CSP，避免内联 onclick）
+        shopModal.on('click', '.buy-btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = $(this).data('itemId');
+            try { window.buyItem && window.buyItem(String(id)); } catch(err) { console.warn('buyItem error', err); }
+        });
+
 
         // 绑定分类按钮事件（作用域限定在当前弹窗）
         shopModal.find('.shop-category-btn').on('click', function() {
@@ -8898,7 +8906,7 @@ async function createNewChatSession(){
                             拥有: ${ownedCount}
                         </div>
                         ` : ''}
-                        <button onclick="buyItem('${itemId}')" style="
+                        <button class="buy-btn" data-item-id="${itemId}" style="
                             padding: 12px 20px !important;
                             background: ${canAfford ? 'linear-gradient(135deg, ' + candyColors.buttonPrimary + ', ' + candyColors.buttonSecondary + ')' : candyColors.textMuted} !important;
                             color: ${canAfford ? candyColors.textWhite : candyColors.textSecondary} !important;
@@ -8930,9 +8938,7 @@ async function createNewChatSession(){
             return;
         }
 
-        if (!confirm(`确定要购买 ${item.name} 吗？\n价格：${item.price} 金币\n\n${item.description}`)) {
-            return;
-        }
+
 
         // 扣除金币
         petData.coins = (petData.coins || 100) - item.price;
