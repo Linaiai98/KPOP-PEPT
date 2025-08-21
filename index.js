@@ -714,7 +714,7 @@ jQuery(async () => {
             child:  { name: "儿童",  duration: 48,  icon: 'baby' },   // 48小时
             teen:   { name: "少年",  duration: 72,  icon: 'bird' },   // 72小时
             adult:  { name: "成年",  duration: 120, icon: 'bird' },   // 120小时
-            senior: { name: "老年",  duration: 48,  icon: 'activity' }    // 48小时后死亡
+            senior: { name: "老年",  duration: 96,  icon: 'activity' }    // 96小时后自然死亡（延长寿命）
         };
 
 
@@ -3570,15 +3570,15 @@ ${currentPersonality}
                         name: savedData.name || petData.name,
                         type: savedData.type || petData.type,
                         level: savedData.level || petData.level,
-                        experience: savedData.experience || petData.experience,
+                        experience: (savedData.experience ?? petData.experience),
                         created: savedData.created || petData.created,
                         personality: savedData.personality || getCurrentPersonality(), // 保留人设信息
 
                         // 基础数值（使用更合理的初始值）
-                        health: Math.min(savedData.health || 35, 70),
-                        happiness: Math.min(savedData.happiness || 25, 70),
-                        hunger: Math.min(savedData.hunger || 40, 70),
-                        energy: Math.min(savedData.energy || 50, 70),
+                        health: Math.min((savedData.health ?? 35), 70),
+                        happiness: Math.min((savedData.happiness ?? 25), 70),
+                        hunger: Math.min((savedData.hunger ?? 40), 70),
+                        energy: Math.min((savedData.energy ?? 50), 70),
 
                         // 新增拓麻歌子式属性
                         lifeStage: "baby",
@@ -8961,12 +8961,12 @@ async function createNewChatSession(){
         const effect = item.effect;
 
         // 应用效果
-        if (effect.hunger) petData.hunger = Math.min(100, Math.max(0, petData.hunger + effect.hunger));
-        if (effect.happiness) petData.happiness = Math.min(100, Math.max(0, petData.happiness + effect.happiness));
-        if (effect.health) petData.health = Math.min(100, Math.max(0, petData.health + effect.health));
-        if (effect.energy) petData.energy = Math.min(100, Math.max(0, petData.energy + effect.energy));
-        if (effect.sickness) petData.sickness = Math.min(100, Math.max(0, (petData.sickness || 0) + effect.sickness));
-        if (effect.discipline) petData.discipline = Math.min(100, Math.max(0, (petData.discipline || 50) + effect.discipline));
+        if ('hunger' in effect) petData.hunger = Math.min(100, Math.max(0, petData.hunger + effect.hunger));
+        if ('happiness' in effect) petData.happiness = Math.min(100, Math.max(0, petData.happiness + effect.happiness));
+        if ('health' in effect) petData.health = Math.min(100, Math.max(0, petData.health + effect.health));
+        if ('energy' in effect) petData.energy = Math.min(100, Math.max(0, petData.energy + effect.energy));
+        if ('sickness' in effect) petData.sickness = Math.min(100, Math.max(0, (petData.sickness || 0) + effect.sickness));
+        if ('discipline' in effect) petData.discipline = Math.min(100, Math.max(0, (petData.discipline || 50) + effect.discipline));
 
         // 特殊效果
         if (effect.timeFreeze) {
@@ -9926,22 +9926,31 @@ async function createNewChatSession(){
             const timeSinceLastUpdate = now - (petData.lastUpdateTime || now);
             const hoursElapsed = timeSinceLastUpdate / (1000 * 60 * 60);
 
-            // 拓麻歌子式：不限制最大时间差，真实时间流逝
-            if (hoursElapsed > 0.1) { // 每6分钟更新一次
+            // 首次互动前不进行衰减，防止无感掉数值
+            if (!petData.hasInteracted) {
+                petData.lastUpdateTime = now;
+                return;
+            }
 
-                // 1. 年龄增长
+            // 离线衰减保护：单次更新的衰减时长上限（小时）
+            const decayHours = Math.min(hoursElapsed, 8);
+
+            // 每6分钟更新一次
+            if (hoursElapsed > 0.1) {
+
+                // 1. 年龄增长（真实经过时长）
                 petData.age += hoursElapsed;
 
                 // 2. 生命阶段检查
                 checkLifeStageProgression();
 
-                // 3. 拓麻歌子式衰减（调整为合理速度）
-                petData.hunger = Math.max(0, petData.hunger - hoursElapsed * 1.2);    // 每小时-1.2
-                petData.energy = Math.max(0, petData.energy - hoursElapsed * 1.0);    // 每小时-1.0
-                petData.happiness = Math.max(0, petData.happiness - hoursElapsed * 0.8); // 每小时-0.8
+                // 3. 衰减（更温和）
+                petData.hunger = Math.max(0, petData.hunger - decayHours * 0.6);      // 每小时-0.6
+                petData.energy = Math.max(0, petData.energy - decayHours * 0.5);      // 每小时-0.5
+                petData.happiness = Math.max(0, petData.happiness - decayHours * 0.4); // 每小时-0.4
 
-                // 4. 健康状况检查
-                checkHealthConditions(hoursElapsed);
+                // 4. 健康状况检查（使用受限的衰减时长）
+                checkHealthConditions(decayHours);
 
                 // 5. 死亡检查
                 checkDeathConditions();
@@ -10293,37 +10302,40 @@ async function createNewChatSession(){
 
     // 检查健康状况
     function checkHealthConditions(hoursElapsed) {
-        // 饥饿影响健康
+        // 饥饿影响健康（温和）
         if (petData.hunger < 20) {
-            petData.health = Math.max(0, petData.health - hoursElapsed * 2);
-            petData.sickness = Math.min(100, petData.sickness + hoursElapsed * 1.5);
-        }
-
-        // 疲劳影响健康
-        if (petData.energy < 20) {
-            petData.health = Math.max(0, petData.health - hoursElapsed * 1);
-            petData.happiness = Math.max(0, petData.happiness - hoursElapsed * 1.5);
-        }
-
-        // 不快乐影响健康
-        if (petData.happiness < 20) {
-            petData.health = Math.max(0, petData.health - hoursElapsed * 0.5);
+            petData.health = Math.max(0, petData.health - hoursElapsed * 0.4);
             petData.sickness = Math.min(100, petData.sickness + hoursElapsed * 0.5);
         }
 
-        // 生病持续时间
+        // 疲劳影响健康（温和）
+        if (petData.energy < 20) {
+            petData.health = Math.max(0, petData.health - hoursElapsed * 0.2);
+            petData.happiness = Math.max(0, petData.happiness - hoursElapsed * 0.5);
+        }
+
+        // 不快乐影响健康（温和）
+        if (petData.happiness < 20) {
+            petData.health = Math.max(0, petData.health - hoursElapsed * 0.1);
+            petData.sickness = Math.min(100, petData.sickness + hoursElapsed * 0.2);
+        }
+
+        // 生病持续时间（放宽）
         if (petData.sickness > 50) {
             petData.sicknessDuration += hoursElapsed;
-            if (petData.sicknessDuration > 24) { // 生病超过24小时
-                petData.health = Math.max(0, petData.health - hoursElapsed * 3);
+            if (petData.sicknessDuration > 72) { // 生病超过72小时
+                petData.health = Math.max(0, petData.health - hoursElapsed * 0.8);
             }
         } else {
             petData.sicknessDuration = 0;
         }
 
-        // 忽视照顾计数
+        // 健康衰减保护：不因自然衰减低于 5
+        petData.health = Math.max(5, petData.health);
+
+        // 忽视照顾计数（放宽）
         const timeSinceLastCare = Date.now() - petData.lastCareTime;
-        if (timeSinceLastCare > 4 * 60 * 60 * 1000) { // 4小时没有照顾
+        if (timeSinceLastCare > 12 * 60 * 60 * 1000) { // 12小时没有照顾
             petData.careNeglectCount++;
             petData.lastCareTime = Date.now(); // 重置计时器
         }
@@ -10340,15 +10352,23 @@ async function createNewChatSession(){
             deathReason = "sickness";
         }
         // 长期忽视照顾
-        else if (petData.careNeglectCount >= 6) { // 6次忽视（24小时）
+        else if (petData.careNeglectCount >= 8) { // 8次忽视（最少96小时）
             deathReason = "neglect";
         }
         // 严重疾病
-        else if (petData.sickness >= 100 && petData.sicknessDuration > 48) {
+        else if (petData.sickness >= 100 && petData.sicknessDuration > 120 && petData.health < 15) {
             deathReason = "disease";
         }
 
         if (deathReason) {
+            // 最后保护：若为非自然死亡且健康仍有微量，给一次缓冲
+            if (deathReason !== 'natural' && petData.health > 5) {
+                petData.health = 5; // 健康下限保护
+                petData.sickness = Math.min(100, petData.sickness + 5);
+                toastr.warning('⚠️ 宠物状态危急，但暂未死亡。请尽快照顾它！');
+                return;
+            }
+
             petData.isAlive = false;
             petData.deathReason = deathReason;
 
@@ -11809,6 +11829,21 @@ async function createNewChatSession(){
             } catch (error) {
                 console.log(`❌ 抱抱执行失败: ${error.message}`);
                 // 恢复原始函数
+    // 轻量级回归测试：模拟离线 24/48/72 小时，不应直接死亡
+    window.simulateOfflineHours = function(hours) {
+        if (!petData.hasInteracted) {
+            petData.hasInteracted = true;
+            petData.lastUpdateTime = Date.now() - (hours * 60 * 60 * 1000);
+        } else {
+            petData.lastUpdateTime = Date.now() - (hours * 60 * 60 * 1000);
+        }
+        const before = { health: petData.health, happiness: petData.happiness, hunger: petData.hunger, energy: petData.energy };
+        updatePetStatus();
+        const after = { health: petData.health, happiness: petData.happiness, hunger: petData.hunger, energy: petData.energy, isAlive: petData.isAlive };
+        console.log(`[TEST] 模拟离线 ${hours}h`, { before, after });
+        return { before, after };
+    };
+
                 window.gainCoins = originalGainCoins;
                 window.gainExperience = originalGainExp;
             }
